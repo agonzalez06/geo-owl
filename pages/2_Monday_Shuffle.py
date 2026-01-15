@@ -229,6 +229,25 @@ if closed_input:
         if t.isdigit():
             closed_teams.add(int(t))
 
+# Geography reference (collapsible)
+with st.expander("Team Geography Reference"):
+    ref_text = """
+Team    Floors              Team    Floors
+----    ------              ----    ------
+Med 1*  3E / 3W / IMCU      Med 9   7E / 7W
+Med 2*  3E / 3W / IMCU      Med 10  5E / 5W
+Med 3*  3E / 3W / IMCU      Med 11  4E / 4W
+Med 4   4E / 4W             Med 12  6E / 6W / Boyer
+Med 5   5E / 5W             Med 13  Overflow
+Med 6   6E / 6W / Boyer     Med 14  Overflow
+Med 7   7E / 7W             Med 15  Overflow
+Med 8   8E / 8W
+
+* = IMCU teams (cap: 10)
+Room convention: X01-X20 = West, X30-X50 = East
+"""
+    st.code(ref_text, language=None)
+
 st.markdown("---")
 
 # Input method tabs
