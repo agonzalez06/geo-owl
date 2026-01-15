@@ -621,12 +621,3 @@ if st.button("Optimize Placements", type="primary", use_container_width=True):
                 </script>
             """, height=text_height + 60)
 
-# Footer
-st.markdown("---")
-st.markdown(
-    "<div style='text-align: center; color: gray;'>"
-    "Room convention: X01-X20 = West, X30-X50 = East | "
-    "IMCU cap: 10 | Soft cap: 14"
-    "</div>",
-    unsafe_allow_html=True
-)
