@@ -22,7 +22,7 @@ FLOOR_TO_TEAMS = {
     '5W': [5, 10], '5E': [5, 10],
     '6W': [6, 12], '6E': [6, 12],
     '7W': [7, 9], '7E': [7, 9],
-    '8E': [8, 13], '8W': [8, 13],
+    '8E': [8], '8W': [8],
     'IMCU': [1, 2, 3],
     'BOYER': [12, 6],
 }
@@ -30,13 +30,13 @@ FLOOR_TO_TEAMS = {
 TEAM_FLOORS = {
     1: ['3W', '3E', 'IMCU'], 2: ['3W', '3E', 'IMCU'], 3: ['3W', '3E', 'IMCU'],
     4: ['4E', '4W'], 5: ['5E', '5W'], 6: ['6E', '6W'],
-    7: ['7E', '7W'], 8: ['8E'], 9: ['7E', '7W'],
+    7: ['7E', '7W'], 8: ['8E', '8W'], 9: ['7E', '7W'],
     10: ['5E', '5W'], 11: ['4E', '4W'], 12: ['6E', '6W', 'Boyer'],
-    13: ['8E'], 14: ['Overflow'], 15: ['Overflow'],
+    13: ['Overflow'], 14: ['Overflow'], 15: ['Overflow'],
 }
 
 ALL_TEAMS = list(range(1, 16))
-OVERFLOW_TEAMS = [14, 15]
+OVERFLOW_TEAMS = [13, 14, 15]
 IMCU_TEAMS = [1, 2, 3]
 IMCU_TARGET = 9   # Prefer to keep IMCU at 9 to leave room for 1 more
 IMCU_CAP = 10     # Hard cap for IMCU teams
@@ -365,7 +365,7 @@ doc_labels = [
     ("Med Q", "1-3"),
     ("Med S", "4-6"),
     ("Med Y", "7-9"),
-    ("Med Z", "10-13"),
+    ("Med Z", "10-12"),
 ]
 doctor_names = []
 doctor_patients = []
