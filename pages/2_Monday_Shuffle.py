@@ -28,13 +28,13 @@ FLOOR_TO_TEAMS = {
     '5W': [5, 10], '5E': [5, 10],
     '6W': [6, 12], '6E': [6, 12],
     '7W': [7, 9], '7E': [7, 9],
-    '8E': [8, 13], '8W': [8, 13],
+    '8E': [8], '8W': [8],
     'IMCU': [1, 2, 3],
     'BOYER': [12, 6],
 }
 
 ALL_TEAMS = list(range(1, 16))
-OVERFLOW_TEAMS = [14, 15]
+OVERFLOW_TEAMS = [13, 14, 15]
 IMCU_TEAMS = [1, 2, 3]
 
 
@@ -219,7 +219,7 @@ st.markdown("Identify patients on wrong teams for manual reassignment in Epic.")
 # Closed teams input
 closed_input = st.text_input(
     "Closed teams (comma-separated, e.g., '14, 15')",
-    value="14, 15",
+    value="",
     help="Enter team numbers that are closed"
 )
 closed_teams = set()
@@ -436,29 +436,48 @@ if st.session_state.all_patients:
     for patient in all_patients:
         team_census[patient.current_team] += 1
 
-    # Generate recommendations - geographic with census balancing within geo options
+    # Generate recommendations - geographic with census balancing
     # Track projected census to spread load evenly
     # IMCU teams target 9 (leave room for 1 more)
+    # Use overflow teams (13, 14, 15) when geographic teams are overloaded
     IMCU_TARGET = 9
+    OVERFLOW_THRESHOLD = 10  # Consider overflow if geo teams at or above this
 
     projected_census = dict(team_census)
     recommendations = []
 
+    # Get available overflow teams (not closed)
+    available_overflow = [t for t in OVERFLOW_TEAMS if t not in closed_teams]
+
     for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
         if acceptable:
-            # Score each geographic option: prefer lower census, penalize IMCU over target
+            # Score each option: prefer lower census, penalize IMCU over target
             def team_score(t):
                 census = projected_census.get(t, 0)
                 if t in IMCU_TEAMS and census >= IMCU_TARGET:
                     return census + 100  # Penalize IMCU over 9
                 return census
 
-            best_team = min(acceptable, key=team_score)
+            # Check if geographic teams are overloaded - if so, add overflow options
+            min_geo_census = min(projected_census.get(t, 0) for t in acceptable)
+            if min_geo_census >= OVERFLOW_THRESHOLD and available_overflow:
+                options = acceptable + available_overflow
+            else:
+                options = acceptable
+
+            best_team = min(options, key=team_score)
             projected_census[best_team] = projected_census.get(best_team, 0) + 1
             projected_census[patient.current_team] = projected_census.get(patient.current_team, 0) - 1
             recommendations.append((patient, best_team))
         else:
-            recommendations.append((patient, None))
+            # No geographic options - use overflow if available
+            if available_overflow:
+                best_team = min(available_overflow, key=lambda t: projected_census.get(t, 0))
+                projected_census[best_team] = projected_census.get(best_team, 0) + 1
+                projected_census[patient.current_team] = projected_census.get(patient.current_team, 0) - 1
+                recommendations.append((patient, best_team))
+            else:
+                recommendations.append((patient, None))
 
     # Three columns: Census, Needs Reassignment, Team Correct
     res_col1, res_col2, res_col3 = st.columns(3)
@@ -521,7 +540,7 @@ if st.session_state.all_patients:
         4: "4E/4W", 5: "5E/5W", 6: "6E/6W/Boyer",
         7: "7E/7W", 8: "8E/8W", 9: "7E/7W",
         10: "5E/5W", 11: "4E/4W", 12: "6E/6W/Boyer",
-        13: "8E/8W", 14: "Overflow", 15: "Overflow",
+        13: "Overflow", 14: "Overflow", 15: "Overflow",
     }
 
     # Build team rosters after reassignment
