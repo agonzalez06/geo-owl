@@ -373,11 +373,15 @@ for i, (doc_col, (code, teams)) in enumerate(zip(doc_cols, doc_labels), 1):
         )
         doctor_names.append(name.strip() if name else code)
 
+        # Add IMCU asterisk instruction only in Med Q column
+        if i == 1:
+            st.caption("Add * for IMCU (e.g. 534*)")
+
         patients = st.text_area(
             "Patients",
             key=f"patients_{i}",
             height=400,
-            placeholder="312\n545\n7E\n...",
+            placeholder="312\n545*\n7E\n..." if i == 1 else "312\n545\n7E\n...",
             label_visibility="collapsed"
         )
         doctor_patients.append(patients)
@@ -403,13 +407,24 @@ if st.button("Optimize Placements", type="primary", use_container_width=True):
             if not location:
                 continue
 
+            # Check for IMCU asterisk suffix
+            is_imcu_override = False
+            if location.endswith('*'):
+                is_imcu_override = True
+                location = location[:-1]  # Remove the asterisk
+
             location_key = location.upper()
             if location_key in seen:
                 duplicates += 1
                 continue
             seen.add(location_key)
 
-            floor = normalize_floor(location)
+            # Force IMCU floor if asterisk was present, otherwise normalize
+            if is_imcu_override:
+                floor = 'IMCU'
+            else:
+                floor = normalize_floor(location)
+
             patients.append(Patient(f"Pt{pt_count}", floor, location, admitted_by=doc_name))
             pt_count += 1
 
