@@ -264,7 +264,7 @@ with tab1:
         )
 
         if uploaded_files:
-            btn_col1, btn_col2 = st.columns([2, 1])
+            btn_col1, btn_col2, btn_spacer = st.columns([1, 1, 3])
             with btn_col1:
                 process_btn = st.button("Process Screenshots", type="primary", key="ocr_btn")
             with btn_col2:
@@ -483,6 +483,15 @@ if st.session_state.all_patients:
     st.markdown("---")
     st.markdown("### New Assignments by Team")
 
+    # Team to floors mapping
+    TEAM_FLOORS = {
+        1: "3E/3W/IMCU", 2: "3E/3W/IMCU", 3: "3E/3W/IMCU",
+        4: "4E/4W", 5: "5E/5W", 6: "6E/6W/Boyer",
+        7: "7E/7W", 8: "8E/8W", 9: "7E/7W",
+        10: "5E/5W", 11: "4E/4W", 12: "6E/6W/Boyer",
+        13: "8E/8W", 14: "Overflow", 15: "Overflow",
+    }
+
     # Build team rosters after reassignment
     team_rosters = defaultdict(list)
 
@@ -495,23 +504,31 @@ if st.session_state.all_patients:
         if rec_team:
             team_rosters[rec_team].append((patient.room, "new"))
 
-    # Display in columns
-    team_col1, team_col2, team_col3, team_col4 = st.columns(4)
-    team_cols = [team_col1, team_col2, team_col3, team_col4]
+    # Display in 5-column grid with equal sizes
+    teams_to_show = [t for t in ALL_TEAMS if t not in closed_teams]
 
-    teams_with_changes = [t for t in ALL_TEAMS if team_rosters[t] and t not in closed_teams]
+    # Create rows of 5 teams each
+    for row_start in range(0, len(teams_to_show), 5):
+        row_teams = teams_to_show[row_start:row_start + 5]
+        cols = st.columns(5)
 
-    for i, team in enumerate(teams_with_changes):
-        col = team_cols[i % 4]
-        with col:
-            roster = team_rosters[team]
-            new_count = sum(1 for _, status in roster if status == "new")
-            imcu = "*" if team in IMCU_TEAMS else ""
+        for col, team in zip(cols, row_teams):
+            with col:
+                roster = team_rosters[team]
+                new_count = sum(1 for _, status in roster if status == "new")
+                imcu = "*" if team in IMCU_TEAMS else ""
+                floors = TEAM_FLOORS.get(team, "")
 
-            roster_text = f"Med {team}{imcu} (+{new_count} new)\n"
-            roster_text += "-" * 15 + "\n"
-            for room, status in sorted(roster):
-                marker = ">" if status == "new" else " "
-                roster_text += f"{marker} {room}\n"
+                roster_text = f"Med {team}{imcu}\n"
+                roster_text += f"{floors}\n"
+                roster_text += "-" * 12 + "\n"
 
-            st.code(roster_text, language=None)
+                if roster:
+                    for room, status in sorted(roster):
+                        marker = ">" if status == "new" else " "
+                        roster_text += f"{marker} {room}\n"
+                    roster_text += f"\n+{new_count} new"
+                else:
+                    roster_text += "(no patients)"
+
+                st.code(roster_text, language=None)
