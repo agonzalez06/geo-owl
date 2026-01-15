@@ -180,111 +180,114 @@ paste_input = st.text_area(
     placeholder="304A 1\n343B 5\n534 Med 10\n435A 7\n..."
 )
 
-if paste_input and st.button("Analyze Teams", type="primary"):
-    all_patients = []
-    seen_rooms = set()
-    parse_errors = []
+if st.button("Analyze Teams", type="primary"):
+    if not paste_input:
+        st.warning("Please enter room and team data first.")
+    else:
+        all_patients = []
+        seen_rooms = set()
+        parse_errors = []
 
-    for line in paste_input.strip().split('\n'):
-        line = line.strip()
-        if not line:
-            continue
+        for line in paste_input.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
 
-        # Look for room number (3 digits with optional letter)
-        room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line, re.IGNORECASE)
-        if not room_match:
-            parse_errors.append(f"No room found: {line}")
-            continue
+            # Look for room number (3 digits with optional letter)
+            room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line, re.IGNORECASE)
+            if not room_match:
+                parse_errors.append(f"No room found: {line}")
+                continue
 
-        room = room_match.group(1).upper()
+            room = room_match.group(1).upper()
 
-        # Look for team number (with or without "Med" prefix)
-        team_match = re.search(r'(?:Med\s*)?(\d{1,2})\b', line[room_match.end():], re.IGNORECASE)
-        if not team_match:
-            parse_errors.append(f"No team found: {line}")
-            continue
+            # Look for team number (with or without "Med" prefix)
+            team_match = re.search(r'(?:Med\s*)?(\d{1,2})\b', line[room_match.end():], re.IGNORECASE)
+            if not team_match:
+                parse_errors.append(f"No team found: {line}")
+                continue
 
-        team_num = int(team_match.group(1))
+            team_num = int(team_match.group(1))
 
-        if team_num < 1 or team_num > 15:
-            parse_errors.append(f"Invalid team {team_num}: {line}")
-            continue
+            if team_num < 1 or team_num > 15:
+                parse_errors.append(f"Invalid team {team_num}: {line}")
+                continue
 
-        if room in seen_rooms:
-            continue
-        seen_rooms.add(room)
+            if room in seen_rooms:
+                continue
+            seen_rooms.add(room)
 
-        floor = normalize_floor(room)
-        all_patients.append(ExistingPatient(room=room, current_team=team_num, floor=floor))
+            floor = normalize_floor(room)
+            all_patients.append(ExistingPatient(room=room, current_team=team_num, floor=floor))
 
-    if parse_errors:
-        with st.expander(f"Parse warnings ({len(parse_errors)})"):
-            for err in parse_errors:
-                st.warning(err)
+        if parse_errors:
+            with st.expander(f"Parse warnings ({len(parse_errors)})"):
+                for err in parse_errors:
+                    st.warning(err)
 
-    st.success(f"Parsed {len(all_patients)} patients")
+        st.success(f"Parsed {len(all_patients)} patients")
 
-    if all_patients:
-        wrong_team, ok_team = analyze_patients(all_patients, closed_teams)
+        if all_patients:
+            wrong_team, ok_team = analyze_patients(all_patients, closed_teams)
 
-        st.markdown("---")
-        st.subheader("Analysis Results")
+            st.markdown("---")
+            st.subheader("Analysis Results")
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Patients", len(all_patients))
-        col2.metric("Need Reassignment", len(wrong_team))
-        col3.metric("Already OK", len(ok_team))
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Patients", len(all_patients))
+            col2.metric("Need Reassignment", len(wrong_team))
+            col3.metric("Already OK", len(ok_team))
 
-        res_col1, res_col2 = st.columns(2)
+            res_col1, res_col2 = st.columns(2)
 
-        with res_col1:
-            st.markdown("### Needs Reassignment")
+            with res_col1:
+                st.markdown("### Needs Reassignment")
+                if wrong_team:
+                    wrong_text = ""
+                    for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
+                        if acceptable:
+                            options = ", ".join(f"Med {t}" for t in acceptable)
+                            wrong_text += f"{patient.room}: Med {patient.current_team} -> {options}\n"
+                        else:
+                            wrong_text += f"{patient.room}: Med {patient.current_team} -> ? (no geo match)\n"
+                    st.code(wrong_text, language=None)
+                else:
+                    st.info("All patients are on acceptable teams!")
+
+            with res_col2:
+                st.markdown("### Already on Correct Team")
+                if ok_team:
+                    ok_text = ""
+                    for patient in sorted(ok_team, key=lambda x: x.room):
+                        ok_text += f"{patient.room}: Med {patient.current_team} OK\n"
+                    st.code(ok_text, language=None)
+                else:
+                    st.info("No patients on correct teams yet.")
+
+            # Summary by current team
+            st.markdown("### Current Census by Team")
+            team_counts = defaultdict(list)
+            for patient in all_patients:
+                team_counts[patient.current_team].append(patient.room)
+
+            census_text = ""
+            for team in ALL_TEAMS:
+                if team in closed_teams:
+                    census_text += f"Med {team:2d}: CLOSED\n"
+                else:
+                    rooms = team_counts.get(team, [])
+                    census_text += f"Med {team:2d}: {len(rooms):2d} patients\n"
+            st.code(census_text, language=None)
+
+            # Detailed wrong team list for copying
             if wrong_team:
-                wrong_text = ""
+                st.markdown("### Reassignment List (for Epic)")
+                epic_text = "Room       From    To Options\n"
+                epic_text += "-" * 40 + "\n"
                 for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
                     if acceptable:
-                        options = ", ".join(f"Med {t}" for t in acceptable)
-                        wrong_text += f"{patient.room}: Med {patient.current_team} -> {options}\n"
+                        options = "/".join(str(t) for t in acceptable)
+                        epic_text += f"{patient.room:10} Med {patient.current_team:2d}  Med {options}\n"
                     else:
-                        wrong_text += f"{patient.room}: Med {patient.current_team} -> ? (no geo match)\n"
-                st.code(wrong_text, language=None)
-            else:
-                st.info("All patients are on acceptable teams!")
-
-        with res_col2:
-            st.markdown("### Already on Correct Team")
-            if ok_team:
-                ok_text = ""
-                for patient in sorted(ok_team, key=lambda x: x.room):
-                    ok_text += f"{patient.room}: Med {patient.current_team} OK\n"
-                st.code(ok_text, language=None)
-            else:
-                st.info("No patients on correct teams yet.")
-
-        # Summary by current team
-        st.markdown("### Current Census by Team")
-        team_counts = defaultdict(list)
-        for patient in all_patients:
-            team_counts[patient.current_team].append(patient.room)
-
-        census_text = ""
-        for team in ALL_TEAMS:
-            if team in closed_teams:
-                census_text += f"Med {team:2d}: CLOSED\n"
-            else:
-                rooms = team_counts.get(team, [])
-                census_text += f"Med {team:2d}: {len(rooms):2d} patients\n"
-        st.code(census_text, language=None)
-
-        # Detailed wrong team list for copying
-        if wrong_team:
-            st.markdown("### Reassignment List (for Epic)")
-            epic_text = "Room       From    To Options\n"
-            epic_text += "-" * 40 + "\n"
-            for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
-                if acceptable:
-                    options = "/".join(str(t) for t in acceptable)
-                    epic_text += f"{patient.room:10} Med {patient.current_team:2d}  Med {options}\n"
-                else:
-                    epic_text += f"{patient.room:10} Med {patient.current_team:2d}  ? (check location)\n"
-            st.code(epic_text, language=None)
+                        epic_text += f"{patient.room:10} Med {patient.current_team:2d}  ? (check location)\n"
+                st.code(epic_text, language=None)
