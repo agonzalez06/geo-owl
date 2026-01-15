@@ -207,13 +207,6 @@ def extract_from_ocr(text: str) -> list[tuple[str, int]]:
 # STREAMLIT UI
 # =============================================================================
 
-st.set_page_config(
-    page_title="Monday Shuffle - Geo Owl",
-    page_icon="Gemini_Generated_Image_2hkaog2hkaog2hka.png",
-    layout="wide"
-)
-
-
 st.title("Monday Shuffle")
 st.markdown("Identify patients on wrong teams for manual reassignment in Epic.")
 
