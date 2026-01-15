@@ -213,12 +213,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Sidebar branding
-try:
-    st.sidebar.image("Gemini_Generated_Image_2hkaog2hkaog2hka.png", width=80)
-except:
-    pass
-st.sidebar.title("Geo Owl")
 
 st.title("Monday Shuffle")
 st.markdown("Identify patients on wrong teams for manual reassignment in Epic.")
