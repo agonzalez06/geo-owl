@@ -165,11 +165,7 @@ def extract_from_ocr(text: str) -> list[tuple[str, int]]:
                 seen_rooms.add(room)
                 pairs.append((room, team))
 
-    # If strategy 1 found enough pairs, return them
-    if len(pairs) >= 5:
-        return pairs
-
-    # Strategy 2: Column matching - find all rooms and teams separately
+    # Strategy 2: Column matching - always try this to catch more
     # More flexible room pattern for column extraction
     all_rooms = re.findall(r'\b(\d{3,4}[A-Z]?)\b', text, re.IGNORECASE)
     # Also find special rooms like MAIN, RZ08, YZ26
@@ -185,18 +181,18 @@ def extract_from_ocr(text: str) -> list[tuple[str, int]]:
     all_teams = re.findall(r'Med\s*(\d{1,2})', text, re.IGNORECASE)
     all_teams = [int(t) for t in all_teams if 1 <= int(t) <= 15]
 
+    # If strategy 1 found enough and counts are close, return
+    if len(pairs) >= 5 and abs(len(pairs) - len(all_teams)) <= 3:
+        return pairs
+
+    # Strategy 2: Column matching - be aggressive
     if len(unique_rooms) > 0 and len(all_teams) > 0:
-        if len(unique_rooms) == len(all_teams):
-            for room, team in zip(unique_rooms, all_teams):
-                if room not in seen_rooms:
-                    seen_rooms.add(room)
-                    pairs.append((room, team))
-        elif abs(len(unique_rooms) - len(all_teams)) <= max(len(unique_rooms), len(all_teams)) * 0.15:
-            min_len = min(len(unique_rooms), len(all_teams))
-            for room, team in zip(unique_rooms[:min_len], all_teams[:min_len]):
-                if room not in seen_rooms:
-                    seen_rooms.add(room)
-                    pairs.append((room, team))
+        # Always try to match what we can
+        min_len = min(len(unique_rooms), len(all_teams))
+        for room, team in zip(unique_rooms[:min_len], all_teams[:min_len]):
+            if room not in seen_rooms:
+                seen_rooms.add(room)
+                pairs.append((room, team))
 
     return pairs
 
@@ -264,6 +260,10 @@ with tab1:
 
                     with st.expander(f"Raw OCR from {uploaded_file.name}"):
                         st.code(raw_text)
+                        # Debug info
+                        rooms_found = re.findall(r'\b(\d{3,4}[A-Z]?)\b', raw_text, re.IGNORECASE)
+                        teams_found = re.findall(r'Med\s*(\d{1,2})', raw_text, re.IGNORECASE)
+                        st.caption(f"Debug: {len(rooms_found)} room patterns, {len(teams_found)} Med patterns")
 
                     pairs = extract_from_ocr(raw_text)
                     all_pairs.extend(pairs)
