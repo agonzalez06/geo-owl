@@ -321,7 +321,7 @@ header_col1, header_col2 = st.columns([1, 8])
 with header_col1:
     st.image("Gemini_Generated_Image_2hkaog2hkaog2hka.png", use_container_width=True)
 with header_col2:
-    st.title("Geo Owl")
+    st.title("Geographic Placement Optimizer")
     st.markdown("Optimal team assignments based on geography and census.")
 
 # Geography reference (collapsible)
