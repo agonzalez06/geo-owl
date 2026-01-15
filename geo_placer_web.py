@@ -278,6 +278,13 @@ def optimize_placements(
 # STREAMLIT UI
 # =============================================================================
 
+st.set_page_config(
+    page_title="Geo Owl",
+    page_icon="Gemini_Generated_Image_2hkaog2hkaog2hka.png",
+    layout="wide"
+)
+
+
 # JavaScript to make Enter key move to next input field
 components.html("""
 <script>
