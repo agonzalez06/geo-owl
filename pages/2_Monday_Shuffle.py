@@ -417,11 +417,10 @@ if st.session_state.all_patients:
     st.markdown("---")
 
     # Analysis header with Clear button
-    header_col1, header_col2, header_spacer = st.columns([1, 1, 6], gap="small")
+    header_col1, header_col2, header_spacer = st.columns([1.2, 0.8, 8], gap="small")
     with header_col1:
         st.subheader("Analysis")
     with header_col2:
-        st.markdown("<div style='padding-top: 8px;'></div>", unsafe_allow_html=True)
         if st.button("Clear", key="clear_btn"):
             st.session_state.all_patients = []
             st.session_state.uploader_key += 1
