@@ -202,11 +202,7 @@ st.set_page_config(
 )
 
 st.title("Monday Shuffle")
-st.markdown("Upload Epic screenshots to redistribute patients based on geography.")
-
-if not OCR_AVAILABLE:
-    st.error("OCR is not available. Please install pytesseract and tesseract-ocr.")
-    st.stop()
+st.markdown("Redistribute patients based on geography.")
 
 # Closed teams input
 closed_input = st.text_input(
@@ -221,29 +217,79 @@ if closed_input:
         if t.isdigit():
             closed_teams.add(int(t))
 
-# File uploader
-uploaded_files = st.file_uploader(
-    "Upload Epic screenshots",
-    type=['png', 'jpg', 'jpeg'],
-    accept_multiple_files=True
-)
+# Input method tabs
+input_tab1, input_tab2 = st.tabs(["Paste from Epic", "Upload Screenshots"])
 
-if uploaded_files and st.button("Process Screenshots & Optimize", type="primary"):
-    all_patients = []
+all_patients = []
 
-    with st.spinner("Processing screenshots with OCR..."):
-        for uploaded_file in uploaded_files:
-            image = Image.open(uploaded_file)
+with input_tab1:
+    st.markdown("**Copy from Epic and paste here.** Format: one patient per line with room and team.")
+    st.markdown("*Example: `304A Med 1` or `5E 534 Med 5`*")
 
-            # Show raw OCR text for debugging
-            raw_text = pytesseract.image_to_string(image)
-            with st.expander(f"Raw OCR text from {uploaded_file.name}"):
-                st.code(raw_text)
+    paste_input = st.text_area(
+        "Paste patient data",
+        height=400,
+        placeholder="304A Med 1\n343B Med 2\n534A Med 5\n..."
+    )
 
-            patients = parse_epic_screenshot(image)
-            all_patients.extend(patients)
-            st.success(f"Found {len(patients)} patients in {uploaded_file.name}")
+    if paste_input and st.button("Process Pasted Data", type="primary", key="paste_btn"):
+        seen_rooms = set()
+        for line in paste_input.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
 
+            # Look for Med team number
+            team_match = re.search(r'Med\s*(\d+)', line, re.IGNORECASE)
+            if not team_match:
+                continue
+
+            team_num = int(team_match.group(1))
+
+            # Look for room number
+            room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line)
+            if not room_match:
+                continue
+
+            room = room_match.group(1)
+
+            if room in seen_rooms:
+                continue
+            seen_rooms.add(room)
+
+            floor = normalize_floor(room)
+            all_patients.append(ExistingPatient(room=room, current_team=team_num, floor=floor))
+
+        st.success(f"Found {len(all_patients)} patients from pasted data")
+
+with input_tab2:
+    st.markdown("**Upload screenshots** of your Epic patient list.")
+
+    if not OCR_AVAILABLE:
+        st.warning("OCR not available on this server. Use the 'Paste from Epic' tab instead.")
+    else:
+        uploaded_files = st.file_uploader(
+            "Upload Epic screenshots",
+            type=['png', 'jpg', 'jpeg'],
+            accept_multiple_files=True
+        )
+
+        if uploaded_files and st.button("Process Screenshots", type="primary", key="ocr_btn"):
+            with st.spinner("Processing screenshots with OCR..."):
+                for uploaded_file in uploaded_files:
+                    image = Image.open(uploaded_file)
+
+                    # Show raw OCR text for debugging
+                    raw_text = pytesseract.image_to_string(image)
+                    with st.expander(f"Raw OCR text from {uploaded_file.name}"):
+                        st.code(raw_text)
+
+                    patients = parse_epic_screenshot(image)
+                    all_patients.extend(patients)
+                    st.success(f"Found {len(patients)} patients in {uploaded_file.name}")
+
+# Process results if we have patients
+if all_patients:
     # Remove duplicates
     seen_rooms = set()
     unique_patients = []
