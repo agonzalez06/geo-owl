@@ -38,7 +38,8 @@ TEAM_FLOORS = {
 ALL_TEAMS = list(range(1, 16))
 OVERFLOW_TEAMS = [14, 15]
 IMCU_TEAMS = [1, 2, 3]
-IMCU_CAP = 10
+IMCU_TARGET = 9   # Prefer to keep IMCU at 9 to leave room for 1 more
+IMCU_CAP = 10     # Hard cap for IMCU teams
 SOFT_CAP = 14
 MAX_NEW_BEFORE_SPREAD = 3
 MAX_CENSUS_GAP = 4
@@ -178,7 +179,14 @@ def optimize_placements(
                 valid_geo_teams.append(t)
 
             if valid_geo_teams:
-                best_geo_team = min(valid_geo_teams, key=lambda t: census.get(t, 0))
+                # Score teams: prefer lower census, penalize IMCU at/over target (9)
+                def geo_score(t):
+                    c = census.get(t, 0)
+                    if t in IMCU_TEAMS and c >= IMCU_TARGET:
+                        return c + 50  # Soft penalty to prefer other options
+                    return c
+
+                best_geo_team = min(valid_geo_teams, key=geo_score)
                 best_geo_census = census.get(best_geo_team, 0)
 
                 non_imcu_regular = [t for t in regular_open_teams if t not in IMCU_TEAMS]

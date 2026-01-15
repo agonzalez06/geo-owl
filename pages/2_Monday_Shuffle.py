@@ -410,23 +410,29 @@ if st.session_state.all_patients:
     for patient in all_patients:
         team_census[patient.current_team] += 1
 
-    # Generate recommendations - 100% geographic (use current census as tie-breaker only)
+    # Generate recommendations - geographic with census balancing within geo options
+    # Track projected census to spread load evenly
+    # IMCU teams target 9 (leave room for 1 more)
+    IMCU_TARGET = 9
+
+    projected_census = dict(team_census)
     recommendations = []
 
     for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
         if acceptable:
-            # Pick team with lowest current census from geographic options
-            best_team = min(acceptable, key=lambda t: team_census.get(t, 0))
+            # Score each geographic option: prefer lower census, penalize IMCU over target
+            def team_score(t):
+                census = projected_census.get(t, 0)
+                if t in IMCU_TEAMS and census >= IMCU_TARGET:
+                    return census + 100  # Penalize IMCU over 9
+                return census
+
+            best_team = min(acceptable, key=team_score)
+            projected_census[best_team] = projected_census.get(best_team, 0) + 1
+            projected_census[patient.current_team] = projected_census.get(patient.current_team, 0) - 1
             recommendations.append((patient, best_team))
         else:
             recommendations.append((patient, None))
-
-    # Calculate projected census if all recommendations followed
-    projected_census = dict(team_census)
-    for patient, rec_team in recommendations:
-        if rec_team:
-            projected_census[rec_team] = projected_census.get(rec_team, 0) + 1
-            projected_census[patient.current_team] = projected_census.get(patient.current_team, 0) - 1
 
     # Three columns: Census, Needs Reassignment, Team Correct
     res_col1, res_col2, res_col3 = st.columns(3)
@@ -518,10 +524,11 @@ if st.session_state.all_patients:
                 new_count = sum(1 for _, status in roster if status == "new")
                 imcu = "*" if team in IMCU_TEAMS else ""
                 floors = TEAM_FLOORS.get(team, "")
+                proj = projected_census.get(team, 0)
 
-                roster_text = f"Med {team}{imcu}\n"
+                roster_text = f"Med {team}{imcu} ({proj})\n"
                 roster_text += f"{floors}\n"
-                roster_text += "-" * 12 + "\n"
+                roster_text += "-" * 14 + "\n"
 
                 if roster:
                     for room, status in sorted(roster):
@@ -529,6 +536,6 @@ if st.session_state.all_patients:
                         roster_text += f"{marker} {room}\n"
                     roster_text += f"\n+{new_count} new"
                 else:
-                    roster_text += "(no patients)"
+                    roster_text += "(no changes)"
 
                 st.code(roster_text, language=None)
