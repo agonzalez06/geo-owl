@@ -53,10 +53,16 @@ def normalize_floor(location: str) -> Optional[str]:
         return 'IMCU'
     if 'OVERNIGHT' in original or 'ONR' in original or 'RECOVERY' in original:
         return 'BOYER'
+    if original.startswith('RZ'):  # Recovery Zone -> BOYER
+        return 'BOYER'
+    if original.startswith('Y'):  # Yellow zone in ED -> BOYER
+        return 'BOYER'
     if any(x in original for x in ['ED', 'EMERGENCY', 'ER ']):
         return None
     if 'BOYER' in original:
         return 'BOYER'
+    if original == 'MAIN':  # Main hospital - no specific geographic team
+        return None
 
     location = re.sub(r'[A-Z]$', '', original)
 
@@ -231,12 +237,20 @@ tab1, tab2 = st.tabs(["Screenshot OCR", "Manual Entry"])
 # Use session state to persist patients across reruns
 if 'all_patients' not in st.session_state:
     st.session_state.all_patients = []
+if 'uploader_key' not in st.session_state:
+    st.session_state.uploader_key = 0
 
 
 def fix_ocr_room(room: str) -> str:
-    """Fix common OCR misreads in room numbers (A->4, B->8 at end)."""
+    """Fix common OCR misreads in room numbers."""
     room = room.upper()
-    # If room ends in digit and is 4 digits, likely the last digit should be a letter
+
+    # Filter out obvious garbage
+    garbage = ['MED', 'BED', 'TEAM', 'PRIMARY', 'POSE', 'TAA', 'ATTA']
+    if room in garbage:
+        return None
+
+    # Fix 4-digit all-numeric rooms (last digit should be letter)
     # Common: 3144 should be 314A, 8518 should be 851B
     if len(room) == 4 and room.isdigit():
         last = room[-1]
@@ -244,6 +258,14 @@ def fix_ocr_room(room: str) -> str:
             room = room[:-1] + 'A'
         elif last == '8':
             room = room[:-1] + 'B'
+
+    # Fix leading T -> 7 (TA1A -> 741A, etc.)
+    if room.startswith('T') and len(room) >= 3:
+        fixed = '7' + room[1:]
+        # Only apply if result looks like a valid room
+        if re.match(r'^\d{3}[A-Z]?$', fixed):
+            room = fixed
+
     return room
 
 
@@ -260,17 +282,19 @@ with tab1:
         uploaded_files = st.file_uploader(
             "Upload Epic screenshots",
             type=['png', 'jpg', 'jpeg'],
-            accept_multiple_files=True
+            accept_multiple_files=True,
+            key=f"uploader_{st.session_state.uploader_key}"
         )
 
-        if uploaded_files:
-            btn_col1, btn_col2, btn_spacer = st.columns([1, 1, 3])
-            with btn_col1:
-                process_btn = st.button("Process Screenshots", type="primary", key="ocr_btn")
-            with btn_col2:
-                if st.button("Clear", key="clear_btn"):
-                    st.session_state.all_patients = []
-                    st.rerun()
+        # Buttons side by side with minimal gap
+        button_cols = st.columns([1, 1, 6], gap="small")
+        with button_cols[0]:
+            process_btn = st.button("Process Screenshots", type="primary", key="ocr_btn", disabled=not uploaded_files)
+        with button_cols[1]:
+            if st.button("Clear", key="clear_btn"):
+                st.session_state.all_patients = []
+                st.session_state.uploader_key += 1
+                st.rerun()
 
             if process_btn:
                 all_pairs = []
@@ -306,7 +330,9 @@ with tab1:
                 seen_rooms = set()
                 st.session_state.all_patients = []
                 for room, team in all_pairs:
-                    room = fix_ocr_room(room)  # Fix A->4, B->8 misreads
+                    room = fix_ocr_room(room)  # Fix OCR errors, filter garbage
+                    if room is None:  # Filtered out as garbage
+                        continue
                     if room not in seen_rooms:
                         seen_rooms.add(room)
                         floor = normalize_floor(room)
