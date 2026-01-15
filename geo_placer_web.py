@@ -384,7 +384,7 @@ doc_labels = [
     ("Med Q", "1-3"),
     ("Med S", "4-6"),
     ("Med Y", "7-9"),
-    ("Med Z", "10-12"),
+    ("Med Z", "10-13"),
 ]
 doctor_names = []
 doctor_patients = []
