@@ -547,6 +547,7 @@ if st.session_state.all_patients:
 
     # Build team rosters after reassignment
     team_rosters = defaultdict(list)
+    team_leaving = defaultdict(int)  # Count patients leaving each team
 
     # Add patients staying on their team
     for patient in ok_team:
@@ -556,6 +557,7 @@ if st.session_state.all_patients:
     for patient, rec_team in recommendations:
         if rec_team:
             team_rosters[rec_team].append((patient.room, "new"))
+            team_leaving[patient.current_team] += 1
 
     # Display in 5-column grid with equal sizes
     teams_to_show = [t for t in ALL_TEAMS if t not in closed_teams]
@@ -569,6 +571,7 @@ if st.session_state.all_patients:
             with col:
                 roster = team_rosters[team]
                 new_count = sum(1 for _, status in roster if status == "new")
+                old_count = team_leaving[team]
                 imcu = "*" if team in IMCU_TEAMS else ""
                 floors = TEAM_FLOORS.get(team, "")
                 proj = projected_census.get(team, 0)
@@ -577,11 +580,11 @@ if st.session_state.all_patients:
                 roster_text += f"{floors}\n"
                 roster_text += "-" * 14 + "\n"
 
-                if roster:
+                if roster or old_count > 0:
                     for room, status in sorted(roster):
                         marker = ">" if status == "new" else " "
                         roster_text += f"{marker} {room}\n"
-                    roster_text += f"\n+{new_count} new"
+                    roster_text += f"\n-{old_count} old, +{new_count} new"
                 else:
                     roster_text += "(no changes)"
 
