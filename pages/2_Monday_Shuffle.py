@@ -219,7 +219,7 @@ st.markdown("Identify patients on wrong teams for manual reassignment in Epic.")
 # Closed teams input
 closed_input = st.text_input(
     "Closed teams (comma-separated, e.g., '14, 15')",
-    value="",
+    value="14, 15",
     help="Enter team numbers that are closed"
 )
 closed_teams = set()
