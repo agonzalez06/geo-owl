@@ -112,34 +112,54 @@ def parse_epic_screenshot(image) -> list[ExistingPatient]:
         return []
 
     text = pytesseract.image_to_string(image)
+
     patients = []
     seen_rooms = set()
 
+    # First try: look for room and team on same line
     for line in text.split('\n'):
         line = line.strip()
         if not line:
             continue
 
-        # Look for Med team number
         team_match = re.search(r'Med\s*(\d+)', line, re.IGNORECASE)
-        if not team_match:
-            continue
-
-        team_num = int(team_match.group(1))
-
-        # Look for room number (3-digit with optional letter suffix)
         room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line)
-        if not room_match:
-            continue
 
-        room = room_match.group(1)
+        if team_match and room_match:
+            team_num = int(team_match.group(1))
+            room = room_match.group(1)
 
-        if room in seen_rooms:
-            continue
-        seen_rooms.add(room)
+            if room not in seen_rooms:
+                seen_rooms.add(room)
+                floor = normalize_floor(room)
+                patients.append(ExistingPatient(room=room, current_team=team_num, floor=floor))
 
-        floor = normalize_floor(room)
-        patients.append(ExistingPatient(room=room, current_team=team_num, floor=floor))
+    # If that didn't work, try column-matching approach
+    if not patients:
+        # Extract all room numbers (3 digits, optionally followed by letter)
+        rooms = re.findall(r'\b(\d{3})[A-Z]?\b', text)
+        # Remove duplicates from room column headers like "343 343A"
+        unique_rooms = []
+        for r in rooms:
+            if r not in unique_rooms:
+                unique_rooms.append(r)
+
+        # Extract all Med team numbers
+        teams = re.findall(r'Med\s*(\d+)', text, re.IGNORECASE)
+
+        # If counts match reasonably, zip them together
+        if len(unique_rooms) > 0 and len(teams) > 0:
+            # Repeat teams if there are more rooms than teams
+            if len(unique_rooms) > len(teams):
+                # Assume teams repeat in order
+                extended_teams = (teams * ((len(unique_rooms) // len(teams)) + 1))[:len(unique_rooms)]
+                teams = extended_teams
+
+            for room, team in zip(unique_rooms, teams):
+                if room not in seen_rooms:
+                    seen_rooms.add(room)
+                    floor = normalize_floor(room)
+                    patients.append(ExistingPatient(room=room, current_team=int(team), floor=floor))
 
     return patients
 
@@ -223,44 +243,38 @@ input_tab1, input_tab2 = st.tabs(["Paste from Epic", "Upload Screenshots"])
 all_patients = []
 
 with input_tab1:
-    st.markdown("**Copy from Epic and paste here.** Format: one patient per line with room and team.")
-    st.markdown("*Example: `304A Med 1` or `5E 534 Med 5`*")
+    st.markdown("**Enter room numbers only** - one per line. We'll assign teams based on geography.")
+    st.markdown("*Just the room number: `304A`, `343B`, `534`, etc.*")
 
     paste_input = st.text_area(
-        "Paste patient data",
+        "Room numbers (one per line)",
         height=400,
-        placeholder="304A Med 1\n343B Med 2\n534A Med 5\n..."
+        placeholder="304A\n343B\n534\n435\n..."
     )
 
-    if paste_input and st.button("Process Pasted Data", type="primary", key="paste_btn"):
+    if paste_input and st.button("Assign Teams by Geography", type="primary", key="paste_btn"):
         seen_rooms = set()
         for line in paste_input.strip().split('\n'):
             line = line.strip()
             if not line:
                 continue
 
-            # Look for Med team number
-            team_match = re.search(r'Med\s*(\d+)', line, re.IGNORECASE)
-            if not team_match:
-                continue
-
-            team_num = int(team_match.group(1))
-
-            # Look for room number
-            room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line)
+            # Look for room number (3 digits with optional letter)
+            room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line, re.IGNORECASE)
             if not room_match:
                 continue
 
-            room = room_match.group(1)
+            room = room_match.group(1).upper()
 
             if room in seen_rooms:
                 continue
             seen_rooms.add(room)
 
             floor = normalize_floor(room)
-            all_patients.append(ExistingPatient(room=room, current_team=team_num, floor=floor))
+            # Set current_team to 0 since we don't know it
+            all_patients.append(ExistingPatient(room=room, current_team=0, floor=floor))
 
-        st.success(f"Found {len(all_patients)} patients from pasted data")
+        st.success(f"Found {len(all_patients)} rooms")
 
 with input_tab2:
     st.markdown("**Upload screenshots** of your Epic patient list.")
@@ -306,25 +320,34 @@ if all_patients:
         st.markdown("---")
         st.subheader("Redistribution Results")
 
-        changes = [(p, new_t, r) for p, new_t, r in results if new_t != p.current_team]
-        no_changes = [(p, new_t, r) for p, new_t, r in results if new_t == p.current_team]
+        # Check if we have current team data
+        has_current_teams = any(p.current_team != 0 for p, _, _ in results)
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Patients", len(results))
-        col2.metric("Patients Moving", len(changes))
-        col3.metric("Staying Put", len(no_changes))
+        if has_current_teams:
+            changes = [(p, new_t, r) for p, new_t, r in results if new_t != p.current_team]
+            no_changes = [(p, new_t, r) for p, new_t, r in results if new_t == p.current_team]
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Patients", len(results))
+            col2.metric("Patients Moving", len(changes))
+            col3.metric("Staying Put", len(no_changes))
+        else:
+            col1, col2 = st.columns(2)
+            col1.metric("Total Patients", len(results))
+            col2.metric("Teams Assigned", len(set(t for _, t, _ in results)))
 
         res_col1, res_col2 = st.columns(2)
 
         with res_col1:
-            st.markdown("### Patients to Move")
-            if changes:
-                move_text = ""
-                for p, new_team, reason in sorted(changes, key=lambda x: x[0].room):
-                    move_text += f"{p.room}: Med {p.current_team} → Med {new_team}\n"
-                st.code(move_text, language=None)
-            else:
-                st.info("No patients need to move!")
+            st.markdown("### Team Assignments")
+            assign_text = ""
+            for p, new_team, reason in sorted(results, key=lambda x: x[0].room):
+                if p.current_team == 0:
+                    assign_text += f"{p.room} → Med {new_team}\n"
+                else:
+                    marker = "→" if new_team != p.current_team else "="
+                    assign_text += f"{p.room}: Med {p.current_team} {marker} Med {new_team}\n"
+            st.code(assign_text, language=None)
 
         with res_col2:
             st.markdown("### New Census by Team")
