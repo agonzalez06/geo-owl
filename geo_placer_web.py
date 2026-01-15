@@ -271,8 +271,8 @@ def optimize_placements(
 # =============================================================================
 
 st.set_page_config(
-    page_title="Patient Placement Optimizer",
-    page_icon="🏥",
+    page_title="Geo Owl",
+    page_icon="Gemini_Generated_Image_2hkaog2hkaog2hka.png",
     layout="wide"
 )
 
