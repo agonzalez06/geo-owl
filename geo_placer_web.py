@@ -320,8 +320,27 @@ header_col1, header_col2 = st.columns([1, 8])
 with header_col1:
     st.image("Gemini_Generated_Image_2hkaog2hkaog2hka.png", use_container_width=True)
 with header_col2:
-    st.title("Overnight Redis")
+    st.title("Geo Owl")
     st.markdown("Optimal team assignments based on geography and census.")
+
+# Geography reference (collapsible)
+with st.expander("Team Geography Reference"):
+    ref_text = """
+Team    Floors              Team    Floors
+----    ------              ----    ------
+Med 1*  3E / 3W / IMCU      Med 9   7E / 7W
+Med 2*  3E / 3W / IMCU      Med 10  5E / 5W
+Med 3*  3E / 3W / IMCU      Med 11  4E / 4W
+Med 4   4E / 4W             Med 12  6E / 6W / Boyer
+Med 5   5E / 5W             Med 13  Overflow
+Med 6   6E / 6W / Boyer     Med 14  Overflow
+Med 7   7E / 7W             Med 15  Overflow
+Med 8   8E / 8W
+
+* = IMCU teams (cap: 10)
+Room convention: X01-X20 = West, X30-X50 = East
+"""
+    st.code(ref_text, language=None)
 
 # Create 5 columns: Census + 4 Doctors side by side
 census_col, doc1_col, doc2_col, doc3_col, doc4_col = st.columns([1, 1, 1, 1, 1])
