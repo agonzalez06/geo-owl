@@ -11,6 +11,9 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 from collections import defaultdict
+from PIL import Image
+import pytesseract
+import io
 
 # =============================================================================
 # GEOGRAPHIC MAPPINGS (same as CLI version)
@@ -58,6 +61,126 @@ class Assignment:
     team: int
     is_geographic: bool
     reason: str
+
+
+@dataclass
+class ExistingPatient:
+    """Patient with current team assignment (for Monday redistribution)."""
+    room: str
+    current_team: int
+    floor: str
+
+
+def parse_epic_screenshot(image) -> list[ExistingPatient]:
+    """
+    Parse Epic patient list screenshot using OCR.
+    Returns list of patients with room and current team.
+    """
+    # Run OCR
+    text = pytesseract.image_to_string(image)
+
+    patients = []
+    seen_rooms = set()
+
+    # Pattern to match room and Med team
+    # Examples: "3W 304A Med 1", "5E 534A Med 5", "4W 410A Med 4"
+    # Room pattern: floor+wing + room number (e.g., "3W 304A" or "304A")
+
+    for line in text.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+
+        # Look for Med team number
+        team_match = re.search(r'Med\s*(\d+)', line, re.IGNORECASE)
+        if not team_match:
+            continue
+
+        team_num = int(team_match.group(1))
+
+        # Look for room number (3-digit with optional letter suffix)
+        room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line)
+        if not room_match:
+            continue
+
+        room = room_match.group(1)
+
+        # Skip duplicates
+        if room in seen_rooms:
+            continue
+        seen_rooms.add(room)
+
+        # Normalize floor from room number
+        floor = normalize_floor(room)
+
+        patients.append(ExistingPatient(
+            room=room,
+            current_team=team_num,
+            floor=floor
+        ))
+
+    return patients
+
+
+def optimize_redistribution(
+    existing_patients: list[ExistingPatient],
+    closed_teams: set[int] = None
+) -> list[tuple[ExistingPatient, int, str]]:
+    """
+    Optimize redistribution of existing patients to teams.
+    Returns list of (patient, new_team, reason) tuples.
+    Only suggests changes for patients who should move.
+    """
+    closed_teams = closed_teams or set()
+    open_teams = [t for t in ALL_TEAMS if t not in closed_teams]
+    regular_open_teams = [t for t in open_teams if t not in OVERFLOW_TEAMS]
+
+    # Calculate target census per team (even distribution)
+    total_patients = len(existing_patients)
+    num_teams = len(regular_open_teams)
+    target_per_team = total_patients // num_teams if num_teams > 0 else 0
+
+    # Track assignments
+    team_assignments = {t: [] for t in ALL_TEAMS}
+    results = []
+
+    # First pass: assign patients to geographic teams where possible
+    unassigned = []
+    for patient in existing_patients:
+        geo_teams = get_geographic_teams(patient.floor) if patient.floor else []
+        geo_teams = [t for t in geo_teams if t not in closed_teams]
+
+        if geo_teams:
+            # Check IMCU caps
+            valid_teams = []
+            for t in geo_teams:
+                if t in IMCU_TEAMS:
+                    current_count = len(team_assignments[t])
+                    if current_count < IMCU_CAP:
+                        valid_teams.append(t)
+                else:
+                    valid_teams.append(t)
+
+            if valid_teams:
+                # Pick team with lowest current assignment count
+                best_team = min(valid_teams, key=lambda t: len(team_assignments[t]))
+                team_assignments[best_team].append(patient)
+
+                reason = "Geographic" if best_team != patient.current_team else "No change (geographic)"
+                results.append((patient, best_team, reason))
+                continue
+
+        unassigned.append(patient)
+
+    # Second pass: assign remaining patients to balance census
+    for patient in unassigned:
+        non_imcu = [t for t in regular_open_teams if t not in IMCU_TEAMS]
+        if non_imcu:
+            best_team = min(non_imcu, key=lambda t: len(team_assignments[t]))
+            team_assignments[best_team].append(patient)
+            results.append((patient, best_team, "Census balance"))
+
+    return results
 
 
 # =============================================================================
@@ -315,8 +438,21 @@ with header_col2:
     st.title("Geographic Placement Optimizer")
     st.markdown("Optimal team assignments based on geography and census.")
 
-# Create 5 columns: Census + 4 Doctors side by side
-census_col, doc1_col, doc2_col, doc3_col, doc4_col = st.columns([1, 1, 1, 1, 1])
+# Mode selector
+mode = st.radio(
+    "Mode",
+    ["T-List (Overnight Admissions)", "Monday Shuffle (Redistribution)"],
+    horizontal=True,
+    label_visibility="collapsed"
+)
+
+if mode == "T-List (Overnight Admissions)":
+    # =============================================================================
+    # T-LIST MODE
+    # =============================================================================
+
+    # Create 5 columns: Census + 4 Doctors side by side
+    census_col, doc1_col, doc2_col, doc3_col, doc4_col = st.columns([1, 1, 1, 1, 1])
 
 # Column 1: Team Census (compact layout)
 with census_col:
@@ -582,6 +718,110 @@ if st.button("Optimize Placements", type="primary", use_container_width=True):
                     }}
                 </script>
             """, height=text_height + 60)
+
+else:
+    # =============================================================================
+    # MONDAY SHUFFLE MODE
+    # =============================================================================
+
+    st.markdown("### Upload Epic Screenshots")
+    st.markdown("Upload screenshots of your Epic patient list. The OCR will extract room numbers and current team assignments.")
+
+    # Closed teams input
+    closed_input = st.text_input(
+        "Closed teams (comma-separated, e.g., '14, 15')",
+        value="14, 15",
+        help="Enter team numbers that are closed"
+    )
+    closed_teams = set()
+    if closed_input:
+        for t in closed_input.split(','):
+            t = t.strip()
+            if t.isdigit():
+                closed_teams.add(int(t))
+
+    # File uploader for multiple images
+    uploaded_files = st.file_uploader(
+        "Upload Epic screenshots",
+        type=['png', 'jpg', 'jpeg'],
+        accept_multiple_files=True
+    )
+
+    if uploaded_files and st.button("Process Screenshots & Optimize", type="primary"):
+        all_patients = []
+
+        with st.spinner("Processing screenshots with OCR..."):
+            for uploaded_file in uploaded_files:
+                image = Image.open(uploaded_file)
+                patients = parse_epic_screenshot(image)
+                all_patients.extend(patients)
+                st.success(f"Found {len(patients)} patients in {uploaded_file.name}")
+
+        # Remove duplicates
+        seen_rooms = set()
+        unique_patients = []
+        for p in all_patients:
+            if p.room not in seen_rooms:
+                seen_rooms.add(p.room)
+                unique_patients.append(p)
+
+        st.markdown(f"**Total unique patients: {len(unique_patients)}**")
+
+        if unique_patients:
+            # Run optimization
+            results = optimize_redistribution(unique_patients, closed_teams)
+
+            # Show results
+            st.markdown("---")
+            st.subheader("Redistribution Results")
+
+            # Count changes
+            changes = [(p, new_t, r) for p, new_t, r in results if new_t != p.current_team]
+            no_changes = [(p, new_t, r) for p, new_t, r in results if new_t == p.current_team]
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Patients", len(results))
+            col2.metric("Patients Moving", len(changes))
+            col3.metric("Staying Put", len(no_changes))
+
+            # Results in columns
+            res_col1, res_col2 = st.columns(2)
+
+            with res_col1:
+                st.markdown("### Patients to Move")
+                if changes:
+                    move_text = ""
+                    for p, new_team, reason in sorted(changes, key=lambda x: x[0].room):
+                        move_text += f"{p.room}: Med {p.current_team} → Med {new_team}\n"
+                    st.code(move_text, language=None)
+                else:
+                    st.info("No patients need to move!")
+
+            with res_col2:
+                st.markdown("### New Census by Team")
+                team_counts = defaultdict(int)
+                for p, new_team, reason in results:
+                    team_counts[new_team] += 1
+
+                census_text = ""
+                for team in ALL_TEAMS:
+                    if team in closed_teams:
+                        census_text += f"Med {team:2d}: CLOSED\n"
+                    else:
+                        count = team_counts.get(team, 0)
+                        imcu = "*" if team in IMCU_TEAMS else " "
+                        census_text += f"Med {team:2d}{imcu}: {count:2d} patients\n"
+                census_text += "\n* = IMCU"
+                st.code(census_text, language=None)
+
+            # Full assignment list
+            st.markdown("### Full Assignment List")
+            full_text = "Room     Current  →  New      Reason\n"
+            full_text += "-" * 45 + "\n"
+            for p, new_team, reason in sorted(results, key=lambda x: x[0].room):
+                change_marker = "→" if new_team != p.current_team else "="
+                full_text += f"{p.room:8} Med {p.current_team:2d}  {change_marker}  Med {new_team:2d}   {reason}\n"
+            st.code(full_text, language=None)
 
 # Footer
 st.markdown("---")

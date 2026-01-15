@@ -1,0 +1,539 @@
+# =============================================================================
+# ANC Sheet Configuration
+# =============================================================================
+# This file controls the admission patterns and team settings for the ANC sheets.
+# Edit this file to change patterns, add teams, or modify settings.
+#
+# HOW TO EDIT:
+# - Each day has its own complete admission order list
+# - Edit the lists directly to change the pattern
+# - Use team letters (A-J), "T" for Med T/BAT, or custom names
+# - Floor assignments can be customized per team per day
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# TEAM NAMES (for display in Day Coverage table)
+# -----------------------------------------------------------------------------
+teams:
+  A: "Alpha"
+  B: "Bravo"
+  C: "Charlie"
+  D: "Delta"
+  E: "Easy"
+  F: "Fox"
+  G: "Golf"
+  H: "Hotel"
+  I: "India"
+  J: "Juliet"
+
+# -----------------------------------------------------------------------------
+# GEOGRAPHIC ASSIGNMENTS (from Geo Redistribution Guidelines)
+# These are the floor assignments for each team
+# Edit here to change where a team admits to
+# -----------------------------------------------------------------------------
+#
+# Reference from PowerPoint:
+#   Unit              | Direct Care Teams | Teaching Teams
+#   3W                | Med 1-3           | Any teaching team
+#   3 East            | Med 1-3           | Med I & J
+#   4 East            | Med 4 & 11        | Med I & J
+#   4 West            | Med 4 & 11        | Any teaching team
+#   5 East & 5 West   | Med 5 & 10        | Med A-D
+#   6 East & 6 West   | Med 6 & 12        | Any teaching team
+#   7 East & 7 West   | Med 7 & 9         | Med E-H
+#   8 East            | Med 8 & 13        | Med E-H
+#   9 West, Boyer     | Med 12            | Med I & J
+#
+# -----------------------------------------------------------------------------
+
+# Teaching team floor assignments
+teaching_team_floors:
+  A: "5W,5E"      # Med A-D go to 5 East & 5 West
+  B: "5W,5E"
+  C: "5W,5E"
+  D: "5W,5E"
+  E: "7E,7W,8E"   # Med E-H go to 7 East, 7 West, 8 East
+  F: "7E,7W,8E"
+  G: "7E,7W,8E"
+  H: "7E,7W,8E"
+  I: "3E,4E"      # Med I & J go to 3 East, 4 East
+  J: "3E,4E"
+
+# Direct care (Med T) team floor assignments
+direct_care_floors:
+  "Med 1 / IMCU": "3W,3E"    # Med 1-3 go to 3W, 3 East
+  "Med 2 / IMCU": "3W,3E"
+  "Med 3 / IMCU": "3W,3E"
+  "Med 4": "4E,4W"            # Med 4 & 11 go to 4 East, 4 West
+  "Med 5": "5E,5W"            # Med 5 & 10 go to 5 East & 5 West
+  "Med 6": "6E,6W"            # Med 6 & 12 go to 6 East & 6 West
+  "Med 7": "7E,7W"            # Med 7 & 9 go to 7 East & 7 West
+  "Med 8": "8E"               # Med 8 & 13 go to 8 East
+  "Med 9": "7E,7W"
+  "Med 10": "5E,5W"
+  "Med 11": "4E,4W"
+  "Med 12": "6E,6W,9W"        # Med 12 also covers 9 West, Boyer
+  "Med 13": "8E"
+  "Med 14": "Overflow"
+
+# Default floors (alias for teaching_team_floors for backwards compatibility)
+default_floors:
+  A: "5W,5E"
+  B: "5W,5E"
+  C: "5W,5E"
+  D: "5W,5E"
+  E: "7E,7W,8E"
+  F: "7E,7W,8E"
+  G: "7E,7W,8E"
+  H: "7E,7W,8E"
+  I: "3E,4E"
+  J: "3E,4E"
+
+# -----------------------------------------------------------------------------
+# MONDAY
+# Teams I and J excluded (residents off)
+# Pattern: 4 teams, break, 4 teams, break, repeat
+# -----------------------------------------------------------------------------
+Monday:
+  notes: "Teams I and J excluded - residents off"
+  excluded_teams: ["I", "J"]
+
+  # Day coverage admission order (slots 1-22)
+  # Each entry is: team letter or "T" for Med T/BAT
+  day_order:
+    - D    # 1
+    - H    # 2
+    - A    # 3
+    - E    # 4
+    - T    # 5
+    - T    # 6
+    - C    # 7
+    - G    # 8
+    - B    # 9
+    - F    # 10
+    - T    # 11
+    - T    # 12
+    - T    # 13
+    - T    # 14
+    - T    # 15
+    - D    # 16
+    - H    # 17
+    - A    # 18
+    - E    # 19
+    - T    # 20
+    - T    # 21
+    - C    # 22
+
+  # Evening coverage admission order (slots 23+)
+  # First team gets "Until 5:30" note when it appears for the 3rd time
+  evening_order:
+    - G    # 23
+    - B    # 24
+    - F    # 25
+    # Then all T[BAT]
+  evening_first_team_rounds: 1  # G only appears once, no "Until 5:30"
+
+  # Optional floor overrides for this day
+  day_floors: {}
+  evening_floors: {}
+
+# -----------------------------------------------------------------------------
+# TUESDAY
+# Standard 5-team rotation: C, G, A, E, I
+# -----------------------------------------------------------------------------
+Tuesday:
+  notes: "Standard pattern"
+  excluded_teams: []
+
+  day_order:
+    - C    # 1
+    - G    # 2
+    - A    # 3
+    - E    # 4
+    - I    # 5
+    - C    # 6
+    - G    # 7
+    - A    # 8
+    - E    # 9
+    - I    # 10
+    # Rest is T[BAT]
+
+  evening_order:
+    - J    # 23 - first team
+    - D    # 24
+    - H    # 25
+  evening_first_team_rounds: 3  # J appears 3 times, gets "Until 5:30" on 3rd
+
+  day_floors: {}
+  evening_floors: {}
+
+# -----------------------------------------------------------------------------
+# WEDNESDAY
+# Standard 5-team rotation: B, F, D, H, J
+# -----------------------------------------------------------------------------
+Wednesday:
+  notes: "Standard pattern"
+  excluded_teams: []
+
+  day_order:
+    - B    # 1
+    - F    # 2
+    - D    # 3
+    - H    # 4
+    - J    # 5
+    - B    # 6
+    - F    # 7
+    - D    # 8
+    - H    # 9
+    - J    # 10
+    # Rest is T[BAT]
+
+  evening_order:
+    - I    # 23 - first team
+    - C    # 24
+    - G    # 25
+  evening_first_team_rounds: 3  # I appears 3 times, gets "Until 5:30" on 3rd
+
+  day_floors: {}
+  evening_floors: {}
+
+# -----------------------------------------------------------------------------
+# THURSDAY - CONFERENCE DAY (UNIQUE PATTERN)
+# Only 1 round of day teams (5 admits), then all BAT
+# Residents have conference on Tuesday, so reduced day admissions
+# -----------------------------------------------------------------------------
+Thursday:
+  notes: "Conference day - only 1 round of day teams (5 admits)"
+  excluded_teams: []
+
+  day_order:
+    - A    # 1
+    - C    # 2
+    - E    # 3
+    - G    # 4
+    - I    # 5
+    # All remaining slots are T[BAT] - only 5 teaching admits!
+
+  evening_order:
+    - J    # 23 - first team
+    - B    # 24
+    - F    # 25
+  evening_first_team_rounds: 3  # J appears 3 times, gets "Until 5:30" on 3rd
+
+  day_floors: {}
+  evening_floors: {}
+
+# -----------------------------------------------------------------------------
+# FRIDAY
+# Standard 5-team rotation: D, H, J, B, F
+# -----------------------------------------------------------------------------
+Friday:
+  notes: "Standard pattern"
+  excluded_teams: []
+
+  day_order:
+    - D    # 1
+    - H    # 2
+    - J    # 3
+    - B    # 4
+    - F    # 5
+    - D    # 6
+    - H    # 7
+    - J    # 8
+    - B    # 9
+    - F    # 10
+    # Rest is T[BAT]
+
+  evening_order:
+    - I    # 23 - first team
+    - A    # 24
+    - E    # 25
+  evening_first_team_rounds: 3  # I appears 3 times, gets "Until 5:30" on 3rd
+
+  day_floors: {}
+  evening_floors: {}
+
+# -----------------------------------------------------------------------------
+# SATURDAY
+# Teams A, C, E, G, I are OFF
+# Alternating pattern: team, T[BAT], team, T[BAT]
+# -----------------------------------------------------------------------------
+Saturday:
+  notes: "Teams A, C, E, G, I off. Alternating with BAT."
+  excluded_teams: ["A", "C", "E", "G", "I"]
+
+  day_order:
+    - B    # 1
+    - T    # 2
+    - D    # 3
+    - T    # 4
+    - F    # 5
+    - T    # 6
+    - H    # 7
+    - T    # 8
+    - J    # 9
+    - T    # 10
+    - B    # 11
+    - T    # 12
+    - D    # 13
+    - T    # 14
+    - F    # 15
+    - T    # 16
+    - H    # 17
+    - T    # 18
+    - J    # 19
+    - T    # 20
+    - B    # 21
+    - T    # 22
+
+  evening_order:
+    - D    # 23
+    - T    # 24
+    - F    # 25
+    - T    # 26
+    - H    # 27
+    - T    # 28
+    - J    # 29
+    # Then all T[BAT]
+  evening_first_team_rounds: 0  # No "Until 5:30" on weekends
+
+  day_floors: {}
+  evening_floors: {}
+
+# -----------------------------------------------------------------------------
+# SUNDAY
+# Teams B, D, F, H, J are OFF
+# Alternating pattern: team, T[BAT], team, T[BAT]
+# -----------------------------------------------------------------------------
+Sunday:
+  notes: "Teams B, D, F, H, J off. Alternating with BAT."
+  excluded_teams: ["B", "D", "F", "H", "J"]
+
+  day_order:
+    - A    # 1
+    - T    # 2
+    - C    # 3
+    - T    # 4
+    - E    # 5
+    - T    # 6
+    - G    # 7
+    - T    # 8
+    - I    # 9
+    - T    # 10
+    - A    # 11
+    - T    # 12
+    - C    # 13
+    - T    # 14
+    - E    # 15
+    - T    # 16
+    - G    # 17
+    - T    # 18
+    - I    # 19
+    - T    # 20
+    - A    # 21
+    - T    # 22
+
+  evening_order:
+    - C    # 23
+    - T    # 24
+    - E    # 25
+    - T    # 26
+    - G    # 27
+    - T    # 28
+    - I    # 29
+    # Then all T[BAT]
+  evening_first_team_rounds: 0  # No "Until 5:30" on weekends
+
+  day_floors: {}
+  evening_floors: {}
+
+# -----------------------------------------------------------------------------
+# MED T TEAMS (Direct Care / Hospitalist)
+# Floor assignments from Geo Redistribution Guidelines PowerPoint
+# -----------------------------------------------------------------------------
+med_t_teams:
+  - name: "Med 1 / IMCU"
+    floor: "3W,3E"       # Med 1-3 → 3W, 3 East
+  - name: "Med 2 / IMCU"
+    floor: "3W,3E"
+  - name: "Med 3 / IMCU"
+    floor: "3W,3E"
+  - name: "Med 4"
+    floor: "4E,4W"       # Med 4 & 11 → 4 East, 4 West
+  - name: "Med 5"
+    floor: "5E,5W"       # Med 5 & 10 → 5 East & 5 West
+  - name: "Med 6"
+    floor: "6E,6W"       # Med 6 & 12 → 6 East & 6 West
+  - name: "Med 7"
+    floor: "7E,7W"       # Med 7 & 9 → 7 East & 7 West
+  - name: "Med 8"
+    floor: "8E"          # Med 8 & 13 → 8 East
+  - name: "Med 9"
+    floor: "7E,7W"
+  - name: "Med 10"
+    floor: "5E,5W"
+  - name: "Med 11"
+    floor: "4E,4W"
+  - name: "Med 12"
+    floor: "6E,6W,9W"    # Med 12 also covers 9 West, Boyer, ONR
+  - name: "Med 13"
+    floor: "8E"
+  - name: "Med 14"
+    floor: "Overflow"
+
+# -----------------------------------------------------------------------------
+# ADMISSION SETTINGS
+# -----------------------------------------------------------------------------
+admission_settings:
+  day_total_slots: 22       # Total day coverage slots
+  evening_start_number: 23  # Evening coverage starts at this number
+  evening_total_slots: 24   # Total evening coverage slots
+
+  # Time annotations
+  evening_cutoff_note: "Until 5:30"     # Added to first evening team's last occurrence
+  weekday_late_time: "6:30 – 7:00"      # Time for late weekday evening slots
+  weekend_late_time: "5:30-6:30"        # Time for late weekend evening slots
+
+# -----------------------------------------------------------------------------
+# ADMISSION RULES TEXT
+# Edit these to change the rules displayed on each admission order table
+# -----------------------------------------------------------------------------
+admission_rules:
+  # Weekday Day Coverage rules (page 2) - Mon, Tue, Wed, Fri
+  weekday_day_header: "Day Rules"
+  weekday_day_rules: >
+    Teaching admits 7 - 11:30 AM, 1 - 2:30 PM. Protected time 11:30 AM - 1 PM.
+    Esperanza to teaching. Chest pain, asthma, COPD, syncope to Med T.
+    Once capped, all admissions to Med T. No admissions to capped teams (16 A-J).
+
+  # Thursday Day Coverage rules (Academic Half Day)
+  thursday_day_header: "Day Rules - Academic Half Day"
+  thursday_day_rules: >
+    Academic half day with protected time from 11:30 AM - 2:30 PM.
+    Teaching admits 7 - 11:30 AM only. All admissions to Med T during protected time.
+    Esperanza to teaching. Chest pain, asthma, COPD, syncope to Med T.
+    Once capped, all admissions to Med T. No admissions to capped teams (16 A-J).
+
+
+  # Weekday Evening Coverage rules (page 3)
+  weekday_evening_header: "Evening Rules"
+  weekday_evening_rules: >
+    Teaching admits until 6:30PM (A-H). Med I & J admit until 5:30.
+    Esperanza to teaching. Chest pain, asthma, COPD, syncope to Med T.
+    Once capped, all admissions to Med T. No admissions to capped teams (16 A-J).
+
+  # Weekday Night Coverage rules (pages 4-5)
+  weekday_night_header: "Night Rules"
+  weekday_night_rules: >
+    IJ SNO admits first 2, then T [BAT]. AD/EH Admitters and Floats alternate with T [BAT].
+
+  # Weekend Day Coverage rules
+  weekend_day_header: "Rules"
+  weekend_day_rules: >
+    Teaching admits 7 AM - 5:30 PM. No protected time.
+    Esperanza to teaching. Chest pain, asthma, COPD, syncope to Med T.
+    Once capped, all admissions to Med T. No admissions to capped teams (16 A-J).
+
+  # Weekend Evening Coverage rules
+  weekend_evening_header: "Weekend Rules"
+  weekend_evening_rules: >
+    Teaching teams alternate with T [BAT] until night coverage.
+
+  # Yellow/HF SNO table rules (page 6)
+  subspecialty_header: "Subspecialty Coverage"
+  yellow_day_header: "Day Coverage 7:00 AM - 6:00 PM"
+  yellow_day_rules: >
+    Cap 16 patients: 5 admissions during daytime. Protected time 11:30 AM - 1:00 PM;
+    hold admissions until afterwards. Once capped, admissions enter general medicine pool.
+    Hold admissions from 6:00-7:00 PM for night team.
+
+  yellow_night_header: "Night Coverage 7:00 PM - 6:00 AM"
+
+  # Holds table header
+  holds_header: "Holds - COVID Boyer downgrades"
+
+# -----------------------------------------------------------------------------
+# PHONE OVERRIDES
+# Add phone numbers here for people whose numbers aren't in Amion
+# Format: "Last, First": "phone-number"
+# -----------------------------------------------------------------------------
+phone_overrides:
+  "Sokach, Carly": "215-498-5369"
+  "Tragesser, Lauren": "215-730-8146"
+  "Sims, Jason": "215-510-5810"
+  "Chau, Alex": "267-908-2851"
+
+# -----------------------------------------------------------------------------
+# CONTACT INFO
+# -----------------------------------------------------------------------------
+contacts:
+  bat_phone: "267-822-6638"
+  physician_executive: "Physician Executive"
+
+# -----------------------------------------------------------------------------
+# NIGHT COVERAGE ROLES
+# These appear in the Night Coverage table
+# -----------------------------------------------------------------------------
+night_roles:
+  - name: "Heart Failure & Yellow Night Owl"
+    amion_name: "YellowSNO"
+  - name: "A-D Resident Admitter"
+    amion_name: "AD adm"
+  - name: "E-H Resident Admitter"
+    amion_name: "EH adm"
+  - name: "A-D Resident Float"
+    amion_name: "AD Float"
+  - name: "E-H Resident Float"
+    amion_name: "EH Float"
+  - name: "IJ & Med Blue Resident"
+    amion_name: "IJ/Blue"
+
+# -----------------------------------------------------------------------------
+# HOLIDAYS
+# Mark holidays for reference (sheets still generated - we're 24/7/365)
+# Use this to apply special patterns on holidays if needed
+# Format: "YYYY-MM-DD": { name: "Holiday Name", day_order: [...], etc. }
+# -----------------------------------------------------------------------------
+holidays:
+  # Example: Holiday with custom pattern (still generates sheet)
+  # "2026-12-25":
+  #   name: "Christmas Day"
+  #   notes: "Holiday staffing pattern"
+  #   day_order: [A, T, B, T, C, T]  # Custom pattern if needed
+
+# -----------------------------------------------------------------------------
+# DATE-SPECIFIC OVERRIDES
+# One-off pattern changes for specific dates (highest priority)
+# Use this for temporary pattern changes without modifying day-of-week configs
+# Format: "YYYY-MM-DD": { day_order: [...], evening_order: [...], notes: "..." }
+# -----------------------------------------------------------------------------
+overrides:
+  # Example: Override pattern for a specific date
+  # "2026-01-20":
+  #   notes: "Special event - modified pattern"
+  #   day_order:
+  #     - A
+  #     - B
+  #     - C
+  #     - T
+  #     - T
+  #   evening_order:
+  #     - D
+  #     - E
+
+# -----------------------------------------------------------------------------
+# NOTIFICATIONS
+# Configure email notifications for system alerts
+# -----------------------------------------------------------------------------
+notifications:
+  # Enable/disable failure notifications
+  enabled: true
+
+  # Recipients for failure notifications
+  # If empty, uses sender_email from email_utils/config.json
+  failure_recipients:
+    - "alejandro.gonzalez@tuhs.temple.edu"
+
+  # Future: could add success notifications, daily summary, etc.
+  # send_on_success: false
+  # daily_summary: false

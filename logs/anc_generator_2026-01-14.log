@@ -1,0 +1,49 @@
+2026-01-14 14:17:59,081 - DEBUG - load_anc_config - Loading config from /Users/alejandrogonzalez/Desktop/ANC Project/anc_config.yaml
+2026-01-14 14:17:59,095 - INFO - load_anc_config - Configuration loaded successfully
+2026-01-14 14:18:38,849 - DEBUG - load_anc_config - Loading config from /Users/alejandrogonzalez/Desktop/ANC Project/anc_config.yaml
+2026-01-14 14:18:38,870 - INFO - load_anc_config - Configuration loaded successfully
+2026-01-14 14:18:38,872 - INFO - validate_config - Config validation passed
+2026-01-14 14:18:45,806 - DEBUG - load_anc_config - Loading config from /Users/alejandrogonzalez/Desktop/ANC Project/anc_config.yaml
+2026-01-14 14:18:45,825 - INFO - load_anc_config - Configuration loaded successfully
+2026-01-14 14:18:45,826 - INFO - <module> - Test log message
+2026-01-14 14:18:58,997 - DEBUG - load_anc_config - Loading config from /Users/alejandrogonzalez/Desktop/ANC Project/anc_config.yaml
+2026-01-14 14:18:59,014 - INFO - load_anc_config - Configuration loaded successfully
+2026-01-14 14:18:59,016 - INFO - generate_anc_for_date - Starting ANC generation for 2026-01-14
+2026-01-14 14:18:59,016 - INFO - validate_config - Config validation passed
+2026-01-14 14:18:59,016 - INFO - generate_anc_sheet - Generating ANC sheet for Wednesday, January 14, 2026
+2026-01-14 14:18:59,016 - INFO - generate_anc_sheet - Fetching Amion data...
+2026-01-14 14:18:59,016 - DEBUG - fetch_amion_data - Fetching attending schedule from Amion (Report 625tabs) for 2026-01-14
+2026-01-14 14:18:59,483 - DEBUG - fetch_amion_data - Fetching resident schedule from Amion (Report 625tabs) for 2026-01-14
+2026-01-14 14:19:00,193 - DEBUG - fetch_contact_info - Fetching contact info from Amion (Report 705) for 2026-01-14
+2026-01-14 14:19:00,558 - DEBUG - fetch_contact_info - Retrieved 29 contacts from Amion
+2026-01-14 14:19:00,558 - INFO - generate_anc_sheet - Retrieved 80 attending assignments, 94 resident assignments
+2026-01-14 14:19:00,559 - DEBUG - generate_anc_sheet - Data parsing complete
+2026-01-14 14:19:00,726 - INFO - generate_anc_for_date - Generated DOCX: /Users/alejandrogonzalez/Desktop/ANC Project/AUTO_01 14 26 Wednesday January 2026 ANC Sheets.docx
+2026-01-14 14:21:57,269 - DEBUG - load_anc_config - Loading config from /Users/alejandrogonzalez/Desktop/ANC Project/anc_config.yaml
+2026-01-14 14:21:57,285 - INFO - load_anc_config - Configuration loaded successfully
+2026-01-14 14:22:01,204 - DEBUG - load_anc_config - Loading config from /Users/alejandrogonzalez/Desktop/ANC Project/anc_config.yaml
+2026-01-14 14:22:01,218 - INFO - load_anc_config - Configuration loaded successfully
+2026-01-14 14:22:01,233 - INFO - generate_anc_for_date - Starting ANC generation for 2026-01-14
+2026-01-14 14:22:01,233 - INFO - validate_config - Config validation passed
+2026-01-14 14:22:01,233 - INFO - generate_anc_sheet - Generating ANC sheet for Wednesday, January 14, 2026
+2026-01-14 14:22:01,233 - INFO - generate_anc_sheet - Fetching Amion data...
+2026-01-14 14:22:01,233 - DEBUG - fetch_amion_data - Fetching attending schedule from Amion (Report 625tabs) for 2026-01-14
+2026-01-14 14:22:01,658 - DEBUG - fetch_amion_data - Fetching resident schedule from Amion (Report 625tabs) for 2026-01-14
+2026-01-14 14:22:02,262 - DEBUG - fetch_contact_info - Fetching contact info from Amion (Report 705) for 2026-01-14
+2026-01-14 14:22:02,670 - DEBUG - fetch_contact_info - Retrieved 29 contacts from Amion
+2026-01-14 14:22:02,670 - INFO - generate_anc_sheet - Retrieved 80 attending assignments, 94 resident assignments
+2026-01-14 14:22:02,672 - DEBUG - generate_anc_sheet - Data parsing complete
+2026-01-14 14:22:02,989 - INFO - generate_anc_for_date - Generated DOCX: /Users/alejandrogonzalez/Desktop/ANC Project/AUTO_01 14 26 Wednesday January 2026 ANC Sheets.docx
+2026-01-14 14:38:41,029 - DEBUG - load_anc_config - Loading config from /Users/alejandrogonzalez/Desktop/ANC Project/anc_config.yaml
+2026-01-14 14:38:41,044 - INFO - load_anc_config - Configuration loaded successfully
+2026-01-14 14:38:41,070 - INFO - generate_anc_for_date - Starting ANC generation for 2026-01-14
+2026-01-14 14:38:41,070 - INFO - validate_config - Config validation passed
+2026-01-14 14:38:41,070 - INFO - generate_anc_sheet - Generating ANC sheet for Wednesday, January 14, 2026
+2026-01-14 14:38:41,070 - INFO - generate_anc_sheet - Fetching Amion data...
+2026-01-14 14:38:41,070 - DEBUG - fetch_amion_data - Fetching attending schedule from Amion (Report 625tabs) for 2026-01-14
+2026-01-14 14:38:41,728 - DEBUG - fetch_amion_data - Fetching resident schedule from Amion (Report 625tabs) for 2026-01-14
+2026-01-14 14:38:42,501 - DEBUG - fetch_contact_info - Fetching contact info from Amion (Report 705) for 2026-01-14
+2026-01-14 14:38:42,995 - DEBUG - fetch_contact_info - Retrieved 29 contacts from Amion
+2026-01-14 14:38:42,995 - INFO - generate_anc_sheet - Retrieved 80 attending assignments, 94 resident assignments
+2026-01-14 14:38:42,996 - DEBUG - generate_anc_sheet - Data parsing complete
+2026-01-14 14:38:43,134 - INFO - generate_anc_for_date - Generated DOCX: /Users/alejandrogonzalez/Desktop/ANC Project/AUTO_01 14 26 Wednesday January 2026 ANC Sheets.docx

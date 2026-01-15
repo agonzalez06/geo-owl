@@ -1,0 +1,23 @@
+{
+    "email": {
+        "sender_email": "alejandro.gonzalez@tuhs.temple.edu",
+        "sender_name": "Alejandro Gonzalez",
+        "smtp_server": "smtp.office365.com",
+        "smtp_port": 587,
+        "method": "outlook"
+    },
+    "jobs": {
+        "anc_daily": {
+            "enabled": true,
+            "recipients": ["alejandro.gonzalez@tuhs.temple.edu"],
+            "cc": [],
+            "subject_template": "ANC Sheet - {date}",
+            "body_template": "Please find attached the ANC sheet for {date}.\n\nThis is an automated message.",
+            "schedule": {
+                "type": "daily",
+                "time": "06:00",
+                "days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            }
+        }
+    }
+}

@@ -1,0 +1,101 @@
+Assignments for 1-14-26     (as of Jan 14 14:27 2026 US ET)
+
+Field  1 -  3: Staff name, unique ID, backup ID
+Field  4 -  6: Assignment name, unique ID, backup ID
+Field  7 -  9: Date and time of assignment (GMTO=4 0 0 SA Western)
+Field  10 -11: Staff type, Pager
+
+Taylor Caton	5849	79	Consult Resident & Housechief	2617	5	1-14-26	0700	1800	R3	215-854-9815
+Nicholas Barnaba	5830	114	Consult Resident & Housechief	1515	6	1-14-26	0700	1800	R3	215-854-9829
+Justin Nathan	5852	72	Geriatrics	6409	7	1-14-26	0700	1800	R3	215-854-9838
+Jessica Reyer	5856	61	Geriatrics	6410	8	1-14-26	0700	1800	R3	215-854-9821
+Vishnu-Prakash Rao	5833	110	CCU Resident - Short	564	34	1-14-26	0600	1500	R3	215-922-8003
+Lydia Mazze	6218	126	CCU Resident - Long	3568	35	1-14-26	0600	1800	R2	267-883-1867
+Laura Petishnok	6655	33	CCU Intern	6970	38	1-14-26	0600	1800	R1	267-865-5768
+Madeline Brown	6755	211	CCU Intern	6979	39	1-14-26	0600	1800	FM Resident	267-667-4339
+Ozdemir Erdemir	6247	155	CCU Resident - Nights	3569	40	1-14-26	1800	0600	R2	267-883-2340
+Raksha Pothapragada	6629	113	Intern Reserve 1	589	42	1-14-26	0000	0000	R1	267-315-2779
+Sheeva Bahrampour	6625	188	Intern Reserve 2	591	44	1-14-26	0000	0000	R1	267-838-8954
+Amanda Luong 	6657	30	Intern Reserve 3	2358	45	1-14-26	0000	0000	R1	267-865-5035
+Lucy Guan	6658	29	Intern Reserve 4	2359	46	1-14-26	0000	0000	R1	267-858-6989
+Joel Novograd	5853	71	Resident Reserve 1	1807	49	1-14-26	0000	0000	R3	215-854-9839
+Yashvardhan Batta	6225	133	Resident Reserve 2	592	51	1-14-26	0000	0000	R2	267-883-2820
+Cyrus (Ratnabhushan) Mutyala	5842	88	Resident Reserve 3	2360	52	1-14-26	0000	0000	R3	215-854-9820
+Elizabeth Li	5851	75	Resident Reserve 4	2361	53	1-14-26	0000	0000	R3	215-854-9824
+Shaan Desai	3835	18	On-Call IM Chief (Attending)	3443	57	1-14-26	0600	1800	Chiefs	445-235-9454
+Rita Ramos	2013	65	Esperanza Attending	594	59	1-14-26	0500	1700	Esperanza	843-367-0110
+Rita Ramos	2013	65	Esperanza Attending	3502	60	1-14-26	1700	0500	Esperanza	843-367-0110
+Pooja Saiganesh	5858	57	Med G Resident - Long	3769	64	1-14-26	0700	2000	R3	215-854-9850
+Caitlyn Brenner	6616	197	Med G1 Intern - Long	3777	68	1-14-26	0700	2000	R1	267-846-9926
+Zuhayr Shaikh	6861	215	Med G2 Intern - Long	3778	73	1-14-26	0700	2000	Anesthesia	267-667-1951
+Nausheen Baksh	6213	121	Med Blue Resident	1111	76	1-14-26	0700	1800	R2	267-883-1414
+Oumaima Bougazzoul	5827	117	Med Blue Resident	1558	77	1-14-26	0700	1800	R3	215-922-8014
+Helen Gandler	5839	96	Heart Failure Resident - Short	698	80	1-14-26	0700	1500	R3	215-922-8012
+Marie Tan	6634	93	Heart Failure Intern - Short	697	81	1-14-26	0700	1500	R1	267-315-3978
+Annika Sundlof	6233	141	Heart Failure Resident - Long	700	82	1-14-26	0700	1800	R2	267-858-9458
+Elizabeth Davidson	6627	163	Heart Failure Intern - Long	699	83	1-14-26	0700	1800	R1	267-858-5313
+Samantha Avis	6224	132	Med H Resident - Day Admit	3784	93	1-14-26	0700	1730	R2	267-883-1898
+Ahmed Wahaj	6635	90	Med H1 Intern - Day Admit	3791	99	1-14-26	0700	1730	R1	267-315-4415
+Mitali Sarkar	6621	192	Med H2 Intern - Day Admit	3790	105	1-14-26	0700	1730	R1	267-315-3441
+Lauren Strange	5835	104	Med E Resident - Post	3734	110	1-14-26	0700	1730	R3	215-922-8021
+Lyan Chang Sedano	6648	45	Med E2 Intern - Post	3741	120	1-14-26	0700	1730	R1	267-858-0881
+Aanini Dwivedi	5862	40	Med J Resident - Day Admit	4256	135	1-14-26	0700	1800	R3	215-922-8013
+Tori Abdalla	6612	201	Med J1 Intern - Day Admit	2947	139	1-14-26	0700	1800	R1	267-838-7701
+Aanal Patel	6668	8	Med J2 Intern - Day Admit	4263	144	1-14-26	0700	1800	R1	267-865-5733
+Laya Manoj	5841	91	Med A Resident - Post	3659	148	1-14-26	0700	1730	R3	215-854-9832
+Christopher Rudmann	6631	98	Med A2 Intern - Post	3663	158	1-14-26	0700	1730	R1	267-315-3235
+Pranay Adavelly	5861	48	Med B Resident - Day Admit	2921	163	1-14-26	0700	1730	R3	215-854-9862
+Kaleb Dawit	6628	120	Med B1 Intern - Day Admit	3676	169	1-14-26	0700	1730	R1	267-858-5513
+Shannon Trombley	6663	20	Med B2 Intern - Day Admit	3674	175	1-14-26	0700	1730	R1	267-315-4238
+Lily Deng	6226	134	Med D Resident - Day Admit	3713	179	1-14-26	0700	1730	R2	267-883-2661
+Cain Shugel	6622	191	Med D1 Intern - Day Admit	3721	185	1-14-26	0700	1730	R1	267-315-3464
+Jordan Young	6665	15	Med D2 Intern - Day Admit	3720	191	1-14-26	0700	1730	R1	267-315-4548
+Andrew McGowan	6607	202	Med I Resident - Evening 	6935	198	1-14-26	0700	1800	R2	267-835-6071
+Mihir Shah	5829	115	Med C Resident - Long	4270	207	1-14-26	0700	2000	R3	215-854-9865
+Jennifer Marx	6652	41	Med C1 Intern - Long	4275	212	1-14-26	0700	2000	R1	267-865-5423
+Ryan Salerno	6632	95	Med C2 Intern - Long	4276	217	1-14-26	0700	2000	R1	267-315-3348
+Andrew Paladino	6219	127	Med F Resident - Day Admit	3750	221	1-14-26	0700	1730	R2	267-883-3270
+Ghina Al Fout	6646	50	Med F1 Intern - Day Admit	3757	227	1-14-26	0700	1730	R1	267-838-8454
+Shruti Sirapu	6633	94	Med F2 Intern - Day Admit	3756	233	1-14-26	0700	1730	R1	267-315-3756
+Alexandra Meeter	6252	160	RICU AB Resident - Admit Short	1640	236	1-14-26	0600	1500	R2	267-883-0970
+Anjali Kamlesh Patel	6662	21	RICU AB Intern - Admit Short	1635	237	1-14-26	0600	1500	R1	267-865-5611
+Mandi Liu	5838	99	RICU AB Resident - Admit Long	2625	238	1-14-26	0600	1900	R3	215-854-9814
+Raksha Pothapragada	6629	113	RICU AB Intern - Admit Long	2628	240	1-14-26	0600	1900	R1	267-315-2779
+Amen Wiqas	6756	212	RICU AB Intern - FM Rotator Long	6981	248	1-14-26	0600	1800	FM Resident	267-667-4348
+Jeremy Laxner 	6988	283	RICU CD Resident - Redis Short	2633	258	1-14-26	0600	1500	ER Residents	215-854-9784 
+Justin Sipiora	6987	282	RICU CD Intern - Redis Short	2634	259	1-14-26	0600	1500	ER Residents	267-667-3861
+Veronica West	6223	131	RICU CD Resident - Redis Long	2760	260	1-14-26	0600	1800	R2	267-858-9412
+Kaylyn Hicks	6650	43	RICU CD Intern - Redis Long	2863	262	1-14-26	0600	1800	R1	267-858-7348
+Renuka Kannappan	5831	112	RICU CD Resident - Nights	2637	264	1-14-26	1800	0600	R3	215-854-9856
+Yvonne Boateng	6613	199	RICU CD Intern - Nights	2638	265	1-14-26	1800	0600	R1	267-846-9468
+Med Charlie	2367	34	Code Team	2410	266	1-14-26	0500	0500	Teams	
+Med Golf	2722	70	Code Team	2411	267	1-14-26	0500	0500	Teams	
+Liam Flanagan	5863	37	Housechief	2816	269	1-14-26	1800	0700	R3	215-854-9848
+Joel Novograd	5853	71	Med Yellow Resident	3585	271	1-14-26	0700	1800	R3	215-854-9839
+Riya Tandra	6222	130	Med Yellow Resident	3586	272	1-14-26	0700	1800	R2	267-858-9132
+William Worrilow	6221	129	BMT Resident	3162	273	1-14-26	0700	1700	R2	267-858-9309
+Jokichi Matsubara	6229	137	BMT Resident	3249	274	1-14-26	0700	1700	R2	267-883-1826
+Avani Gandhi	6227	135	BMT Resident	6984	275	1-14-26	0700	1700	R2	267-883-0959
+Brian Leonard	6667	10	ABCD Intern Night Admit 	6559	276	1-14-26	2000	0900	R1	267-858-9094
+Danny Glickman	6618	195	ABCD Intern Night Float	6561	277	1-14-26	1730	0700	R1	267-858-6904
+Imane Forbes	6857	219	EFGH Intern Night Admit	6563	279	1-14-26	2000	0900	Anesthesia	267-667-1128
+Colm Somers	6624	189	EFGH Intern Night Float	6565	281	1-14-26	1730	0700	R1	267-315-3966
+Rohan Advani	6660	23	IJ Intern	6567	283	1-14-26	1800	0700	R1	267-838-8215
+Ann Mary Wilfred	6254	162	AD Night Admitter	6571	285	1-14-26	2000	0900	R2	267-858-9263
+Allison Pensa	6253	161	EH Night Admitter	6573	288	1-14-26	2000	0900	R2	267-858-9371
+Priyanka Shah	5834	106	ABCD Res Night Float	6576	289	1-14-26	1730	0700	R3	215-854-9823
+Matthew Viggiano	5837	102	EFGH Res Night Float - Wednesday	6808	294	1-14-26	1730	0700	R3	215-854-9834
+Adam Loeser	6250	158	N Blue IJ	6581	295	1-14-26	1800	0700	R2	267-883-0821
+Matthew Dolan	6215	123	Heart Failure & Yellow Nights	6584	297	1-14-26	1800	0700	R2	267-883-1173
+Rubin, Rachel	162	9	Med A Attending	6711	299	1-14-26	0700	1700	Hospitalist	
+Brianna Graham	2579	545	Med B Attending	6714	300	1-14-26	0700	1700	Chiefs	445-235-9441
+Raab, Claire	318	88	Med C Attending	6716	301	1-14-26	0700	1700	Attending	
+Stern, Sam	316	86	Med D Attending	6718	302	1-14-26	0700	1700	Hospitalist	
+Sharma, Manjari	216	34	Med E Attending	6720	303	1-14-26	0700	1700	Hospitalist	
+Induru, Vikranth	912	438	Med F Attending	6722	304	1-14-26	0700	1700	Hospitalist	
+Labella, Caitlyn	528	277	Med G Attending	6724	305	1-14-26	0700	1700	Hospitalist	
+Singer, Esme	1142	527	Med H Attending	6730	306	1-14-26	0700	1700	Attending	215-779-4609
+Patel, Dolly	2590	556	Med I Attending	6732	307	1-14-26	0700	1700	Hospitalist	267-717-7232
+Venkataraman, Chantel	1134	519	Med J Attending	6734	308	1-14-26	0700	1700	Hospitalist	267-643-9752
+Syed Zaid Waqar	6664	16	Med I1 Intern - Evening	6911	313	1-14-26	0700	1800	R1	267-315-4517
+Mei Keck	6619	194	Med I2 Intern - Evening	6922	317	1-14-26	0700	1800	R1	267-858-8239

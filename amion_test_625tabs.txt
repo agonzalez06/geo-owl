@@ -1,0 +1,87 @@
+Assignments for 1-14-26     (as of Jan 14 14:26 2026 US ET)
+
+Field  1 -  3: Staff name, unique ID, backup ID
+Field  4 -  6: Assignment name, unique ID, backup ID
+Field  7 -  9: Date and time of assignment (GMTO=5 1 0 Eastern)
+Field  10 -11: Staff type, Pager
+
+Koroma, Lucianne	1947	530	Episcopal 2	172	179	1-14-26	0900	1900	Nurse Practitioner	267-643-3860
+Bridy, Natalia	1033	488	Episcopal 1	346	204	1-14-26	0700	1700	Nurse Practitioner	267-643-5697
+Jochym, Nicole	1143	528	Admission Placeholder Attending	350	206	1-14-26	0700	1600	Hospitalist	267-400-4991
+Van Stuyvesant, Ashley	1137	522	Admission Placeholder Attending	1116	207	1-14-26	1600	1900	Hospitalist	267-400-4961
+Beel, Kevin	2572	539	Admission Placeholder Attending	1117	208	1-14-26	1900	0700	Hospitalist	267-614-7002
+Chatterjee, Ankita	547	289	Reserve 2	364	211	1-14-26	0700	0700	Hospitalist	via Section Chief
+Chu, Christopher	397	150	Physician Executive	503	232	1-14-26	0830	1700	Hospitalist	
+Chu, Christopher	397	150	Calls from Transfer Center	522	238	1-14-26	0830	1700	Hospitalist	
+Stern, Sam	316	86	Overnight Call A - D, I & J	1951	246	1-14-26	1800	0700	Hospitalist	
+Singer, Esme	1142	527	Overnight Call E - H	2560	254	1-14-26	1800	0700	Attending	215-779-4609
+Rubin, Rachel	162	9	Med Alpha	740	284	1-14-26	0700	1700	Hospitalist	
+Brianna Graham	2579	545	Med Bravo	742	285	1-14-26	0700	1700	Chiefs	445-235-9441
+Raab, Claire	318	88	Med Charlie	744	286	1-14-26	0700	1700	Attending	
+Stern, Sam	316	86	Med Delta	746	287	1-14-26	0700	1700	Hospitalist	
+Sharma, Manjari	216	34	Med Easy	748	288	1-14-26	0700	1700	Hospitalist	
+Induru, Vikranth	912	438	Med Foxtrot	750	289	1-14-26	0700	1700	Hospitalist	
+Labella, Caitlyn	528	277	Med Golf	752	290	1-14-26	0700	1700	Hospitalist	
+Singer, Esme	1142	527	Med Hotel	754	291	1-14-26	0700	1700	Attending	215-779-4609
+Patel, Dolly	2590	556	Med India	756	292	1-14-26	0700	1700	Hospitalist	267-717-7232
+Venkataraman, Chantel	1134	519	Med Juliet	758	293	1-14-26	0700	1700	Hospitalist	267-643-9752
+Stefano, James	486	255	Medicine Consults	762	295	1-14-26	0700	1700	Hospitalist	
+Yeung, Ho-Man	796	411	Med 1	880	338	1-14-26	0700	1600	Hospitalist	
+Hughes, Kelly Eileen	911	437	Med 2	882	339	1-14-26	0700	1600	Hospitalist	
+McGann, Lindsay	398	151	Med 3	884	340	1-14-26	0700	1600	Hospitalist	
+Jochym, Nicole	1143	528	Med 4	886	341	1-14-26	0700	1600	Hospitalist	267-400-4991
+Van Stuyvesant, Ashley	1137	522	Med 5	888	342	1-14-26	0700	1600	Hospitalist	267-400-4961
+Sokach, Carly	1014	474	Med 6	890	343	1-14-26	0700	1600	Hospitalist	
+Voorhees, Simon	1110	498	Med 7	892	344	1-14-26	0700	1600	Hospitalist	
+Baker, Bernadette	2574	540	Med 8	894	345	1-14-26	0700	1600	Attending	267-643-7933
+Tragesser, Lauren	1135	520	Med 9 - CV Hospitalist	896	346	1-14-26	0700	1600	Hospitalist	
+Ali, Kashmala	2585	551	Med 10	898	347	1-14-26	0700	1600	Hospitalist	267-473-3726
+Farooqui, Fozia	2581	547	Med 11	900	348	1-14-26	0700	1600	Attending	267-521-5999
+Bliss, Aaron	2592	558	Reserve 1	902	349	1-14-26	0700	0700	Hospitalist	267-835-6215
+Deb, Kumar	2601	561	Med 12	904	350	1-14-26	0700	1600	Hospitalist	267-521-8170
+Abdujabborova, Ziyodakhon	1106	494	Med 13	2600	351	1-14-26	0700	1600	Hospitalist	267-858-6864
+Sims, Jason	302	74	Temple Nights (Med Q, 1-3)	925	353	1-14-26	1900	0700	Hospitalist	
+Beel, Kevin	2572	539	Temple Nights (Med S, 4-6)	927	354	1-14-26	1900	0700	Hospitalist	267-614-7002
+Chau, Alex	907	433	Temple Nights 3 (Med Y, 7-9)	929	355	1-14-26	1900	0700	Hospitalist	
+Okam, Ioana	1533	705	Temple Nights 4 (Med Z, 10-13)	2608	356	1-14-26	1900	0700	Attending	773-501-0090
+Steinhauser, Mathew	2587	553	Womens Nights	931	357	1-14-26	1900	0700	Hospitalist	445-235-9464
+CLOSED	855	426	Med Kilo	933	358	1-14-26	0700	1700	Closed	
+McGann, Lindsay	398	151	Twilight 1-3	970	361	1-14-26	1600	1900	Hospitalist	
+Van Stuyvesant, Ashley	1137	522	Twilight 4-6	972	362	1-14-26	1600	1900	Hospitalist	267-400-4961
+Voorhees, Simon	1110	498	Twilight 7-9	974	363	1-14-26	1600	1900	Hospitalist	
+Abdujabborova, Ziyodakhon	1106	494	Twilight 10-12	976	364	1-14-26	1600	1900	Hospitalist	267-858-6864
+CLOSED	855	426	Night's Watch (Med S; Call after 15th Admission)	986	366	1-14-26	1900	0800	Closed	
+Gray, Patrick	1940	529	MVP Clinic	990	367	1-14-26	0800	1700	Hospitalist	267-449-1627
+McCreath, Brendan	1132	517	Womens	998	369	1-14-26	0700	1900	Hospitalist	
+Peterson, Sara	160	7	Epsicopal Attending (6 hrs)	1018	373	1-14-26	0900	1500	Hospitalist	
+McGann, Lindsay	398	151	On Call Finder Twilight 1	1036	374	1-14-26	1600	1900	Hospitalist	
+McGann, Lindsay	398	151	On Call Finder Twilight 2	1038	375	1-14-26	1600	1900	Hospitalist	
+McGann, Lindsay	398	151	On Call Finder Twilight 3	1040	376	1-14-26	1600	1900	Hospitalist	
+Van Stuyvesant, Ashley	1137	522	On Call Finder Twilight 4	1042	377	1-14-26	1600	1900	Hospitalist	267-400-4961
+Van Stuyvesant, Ashley	1137	522	On Call Finder Twilight 5	1044	378	1-14-26	1600	1900	Hospitalist	267-400-4961
+Van Stuyvesant, Ashley	1137	522	On Call Finder Twilight 6	1046	379	1-14-26	1600	1900	Hospitalist	267-400-4961
+Voorhees, Simon	1110	498	On Call Finder Twilight 7	1048	380	1-14-26	1600	1900	Hospitalist	
+Voorhees, Simon	1110	498	On Call Finder Twilight 8	1050	381	1-14-26	1600	1900	Hospitalist	
+Voorhees, Simon	1110	498	On Call Finder Twilight 9	1052	382	1-14-26	1600	1900	Hospitalist	
+Abdujabborova, Ziyodakhon	1106	494	On Call Finder Twilight 10	1054	383	1-14-26	1600	1900	Hospitalist	267-858-6864
+Abdujabborova, Ziyodakhon	1106	494	On Call Finder Twilight 11	1056	384	1-14-26	1600	1900	Hospitalist	267-858-6864
+Abdujabborova, Ziyodakhon	1106	494	On Call Finder Twilight 12	1058	385	1-14-26	1600	1900	Hospitalist	267-858-6864
+Sims, Jason	302	74	On Call Finder Nights 1	1066	389	1-14-26	1900	0700	Hospitalist	
+Sims, Jason	302	74	On Call Finder Nights 2	1068	390	1-14-26	1900	0700	Hospitalist	
+Sims, Jason	302	74	On Call Finder Nights 3	1070	391	1-14-26	1900	0700	Hospitalist	
+Beel, Kevin	2572	539	On Call Finder Nights 4	1072	392	1-14-26	1900	0700	Hospitalist	267-614-7002
+Beel, Kevin	2572	539	On Call Finder Nights 5	1074	393	1-14-26	1900	0700	Hospitalist	267-614-7002
+Beel, Kevin	2572	539	On Call Finder Nights 6	1076	394	1-14-26	1900	0700	Hospitalist	267-614-7002
+Chau, Alex	907	433	On Call Finder Nights 7	1078	395	1-14-26	1900	0700	Hospitalist	
+Chau, Alex	907	433	On Call Finder Nights 8	1080	396	1-14-26	1900	0700	Hospitalist	
+Chau, Alex	907	433	On Call Finder Nights 9	1082	397	1-14-26	1900	0700	Hospitalist	
+Okam, Ioana	1533	705	On Call Finder Nights 10	1084	398	1-14-26	1900	0700	Attending	773-501-0090
+Okam, Ioana	1533	705	On Call Finder Nights 11	1086	399	1-14-26	1900	0700	Attending	773-501-0090
+Okam, Ioana	1533	705	On Call Finder Nights 12	1088	400	1-14-26	1900	0700	Attending	773-501-0090
+Okam, Ioana	1533	705	On Call Finder Nights 13	2610	401	1-14-26	1900	0700	Attending	773-501-0090
+Desai, Nicole	908	434	Addiction Consults	1100	405	1-14-26	0900	1700	Hospitalist	267-908-2926
+CLOSED	855	426	Episcopal Res 1	2596	407	1-14-26	0700	1700	Closed	
+CLOSED	855	426	Episcopal Res 2	2599	408	1-14-26	0900	1900	Closed	
+Women & Families Hospitalist Phone	2604	562	Women & Familes On Call	2603	409	1-14-26	0700	0700	Hospitalist	267-521-5918
+McGann, Lindsay	398	151	IMCU Admitter	2606	410	1-14-26	0700	1900	Hospitalist	
+Sims, Jason	302	74	IMCU Admitter	2607	411	1-14-26	1900	0700	Hospitalist	
