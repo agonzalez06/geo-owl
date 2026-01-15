@@ -313,7 +313,7 @@ with header_col1:
     st.image("Gemini_Generated_Image_2hkaog2hkaog2hka.png", use_container_width=True)
 with header_col2:
     st.title("Geographic Placement Optimizer")
-    st.markdown("Recommends optimal team assignments based on geography and census balancing.")
+    st.markdown("Optimal team assignments based on geography and census.")
 
 # Create 5 columns: Census + 4 Doctors side by side
 census_col, doc1_col, doc2_col, doc3_col, doc4_col = st.columns([1, 1, 1, 1, 1])
