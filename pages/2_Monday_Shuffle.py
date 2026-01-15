@@ -232,6 +232,21 @@ tab1, tab2 = st.tabs(["Screenshot OCR", "Manual Entry"])
 if 'all_patients' not in st.session_state:
     st.session_state.all_patients = []
 
+
+def fix_ocr_room(room: str) -> str:
+    """Fix common OCR misreads in room numbers (A->4, B->8 at end)."""
+    room = room.upper()
+    # If room ends in digit and is 4 digits, likely the last digit should be a letter
+    # Common: 3144 should be 314A, 8518 should be 851B
+    if len(room) == 4 and room.isdigit():
+        last = room[-1]
+        if last == '4':
+            room = room[:-1] + 'A'
+        elif last == '8':
+            room = room[:-1] + 'B'
+    return room
+
+
 with tab1:
     st.markdown("""
     **Upload Epic screenshots** showing room numbers and team assignments.
@@ -279,10 +294,11 @@ with tab1:
 
                     st.info(f"Found {len(best_pairs)} room-team pairs in {uploaded_file.name}")
 
-                # Deduplicate and store in session state
+                # Deduplicate, fix OCR errors, and store in session state
                 seen_rooms = set()
                 st.session_state.all_patients = []
                 for room, team in all_pairs:
+                    room = fix_ocr_room(room)  # Fix A->4, B->8 misreads
                     if room not in seen_rooms:
                         seen_rooms.add(room)
                         floor = normalize_floor(room)
@@ -291,7 +307,13 @@ with tab1:
                         )
 
                 if st.session_state.all_patients:
-                    st.success(f"Total: {len(st.session_state.all_patients)} unique patients extracted")
+                    col_success, col_clear = st.columns([3, 1])
+                    with col_success:
+                        st.success(f"Total: {len(st.session_state.all_patients)} unique patients extracted")
+                    with col_clear:
+                        if st.button("Clear All", type="secondary", key="clear_ocr"):
+                            st.session_state.all_patients = []
+                            st.rerun()
 
                     with st.expander("Extracted data (verify this is correct)"):
                         extracted_text = ""
@@ -373,7 +395,15 @@ if st.session_state.all_patients:
     wrong_team, ok_team = analyze_patients(all_patients, closed_teams)
 
     st.markdown("---")
-    st.subheader("Analysis Results")
+
+    # Header with clear button
+    header_col1, header_col2 = st.columns([4, 1])
+    with header_col1:
+        st.subheader("Analysis Results")
+    with header_col2:
+        if st.button("Clear & Start Over", type="secondary"):
+            st.session_state.all_patients = []
+            st.rerun()
 
     # Metrics row: Total / Need Reassignment / Team Correct
     col1, col2, col3 = st.columns(3)
