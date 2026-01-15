@@ -139,18 +139,28 @@ def extract_from_ocr(text: str) -> list[tuple[str, int]]:
     pairs = []
     seen_rooms = set()
 
+    # Room patterns: 3-digit rooms (304A), special rooms (MAIN, RZ08, YZ26)
+    room_pattern = r'\b(\d{3}[A-Z]?|[A-Z]{2,4}\d{0,2}[A-Z]?|\d{4}[A-Z]?)\b'
+
     # Strategy 1: Look for room and team on same line
     for line in text.split('\n'):
         line = line.strip()
         if not line:
             continue
 
-        room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line, re.IGNORECASE)
+        # Skip header lines
+        if 'Primary' in line or 'Bed' in line and 'Team' in line:
+            continue
+
+        room_match = re.search(room_pattern, line, re.IGNORECASE)
         team_match = re.search(r'Med\s*(\d{1,2})', line, re.IGNORECASE)
 
         if room_match and team_match:
             room = room_match.group(1).upper()
             team = int(team_match.group(1))
+            # Skip if room looks like a header or invalid
+            if room in ('BED', 'PRIMARY', 'TEAM'):
+                continue
             if room not in seen_rooms and 1 <= team <= 15:
                 seen_rooms.add(room)
                 pairs.append((room, team))
@@ -159,12 +169,18 @@ def extract_from_ocr(text: str) -> list[tuple[str, int]]:
     if len(pairs) >= 5:
         return pairs
 
-    # Strategy 2: Column matching
-    all_rooms = re.findall(r'\b(\d{3})[A-Z]?\b', text, re.IGNORECASE)
+    # Strategy 2: Column matching - find all rooms and teams separately
+    # More flexible room pattern for column extraction
+    all_rooms = re.findall(r'\b(\d{3,4}[A-Z]?)\b', text, re.IGNORECASE)
+    # Also find special rooms like MAIN, RZ08, YZ26
+    special_rooms = re.findall(r'\b([A-Z]{2,4}\d{1,2})\b', text)
+    special_rooms += re.findall(r'\b(MAIN|ICU\d*|IMCU\d*)\b', text, re.IGNORECASE)
+
     unique_rooms = []
-    for r in all_rooms:
-        if r not in unique_rooms:
-            unique_rooms.append(r)
+    for r in all_rooms + special_rooms:
+        r_upper = r.upper()
+        if r_upper not in unique_rooms and r_upper not in ('BED', 'PRIMARY', 'TEAM', 'MED'):
+            unique_rooms.append(r_upper)
 
     all_teams = re.findall(r'Med\s*(\d{1,2})', text, re.IGNORECASE)
     all_teams = [int(t) for t in all_teams if 1 <= int(t) <= 15]
@@ -175,7 +191,7 @@ def extract_from_ocr(text: str) -> list[tuple[str, int]]:
                 if room not in seen_rooms:
                     seen_rooms.add(room)
                     pairs.append((room, team))
-        elif abs(len(unique_rooms) - len(all_teams)) <= max(len(unique_rooms), len(all_teams)) * 0.1:
+        elif abs(len(unique_rooms) - len(all_teams)) <= max(len(unique_rooms), len(all_teams)) * 0.15:
             min_len = min(len(unique_rooms), len(all_teams))
             for room, team in zip(unique_rooms[:min_len], all_teams[:min_len]):
                 if room not in seen_rooms:
