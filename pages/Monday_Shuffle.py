@@ -234,6 +234,12 @@ if uploaded_files and st.button("Process Screenshots & Optimize", type="primary"
     with st.spinner("Processing screenshots with OCR..."):
         for uploaded_file in uploaded_files:
             image = Image.open(uploaded_file)
+
+            # Show raw OCR text for debugging
+            raw_text = pytesseract.image_to_string(image)
+            with st.expander(f"Raw OCR text from {uploaded_file.name}"):
+                st.code(raw_text)
+
             patients = parse_epic_screenshot(image)
             all_patients.extend(patients)
             st.success(f"Found {len(patients)} patients in {uploaded_file.name}")
