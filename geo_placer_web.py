@@ -484,8 +484,10 @@ if st.button("Optimize Placements", type="primary", use_container_width=True):
         with res_col2:
             st.markdown("### Assignment List")
 
+            # Sort by room number/location
+            sorted_assignments = sorted(assignments, key=lambda a: a.patient.raw_location)
             assignment_text = ""
-            for a in assignments:
+            for a in sorted_assignments:
                 assignment_text += f"{a.patient.raw_location:8} → Med {a.team:2d} ({a.patient.admitted_by})\n"
 
             st.code(assignment_text, language=None)
