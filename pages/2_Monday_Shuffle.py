@@ -264,7 +264,15 @@ with tab1:
         )
 
         if uploaded_files:
-            if st.button("Process Screenshots", type="primary", key="ocr_btn"):
+            btn_col1, btn_col2 = st.columns([2, 1])
+            with btn_col1:
+                process_btn = st.button("Process Screenshots", type="primary", key="ocr_btn")
+            with btn_col2:
+                if st.button("Clear", key="clear_btn"):
+                    st.session_state.all_patients = []
+                    st.rerun()
+
+            if process_btn:
                 all_pairs = []
 
                 for uploaded_file in uploaded_files:
@@ -307,13 +315,7 @@ with tab1:
                         )
 
                 if st.session_state.all_patients:
-                    col_success, col_clear = st.columns([3, 1])
-                    with col_success:
-                        st.success(f"Total: {len(st.session_state.all_patients)} unique patients extracted")
-                    with col_clear:
-                        if st.button("Clear All", type="secondary", key="clear_ocr"):
-                            st.session_state.all_patients = []
-                            st.rerun()
+                    st.success(f"Total: {len(st.session_state.all_patients)} unique patients extracted")
 
                     with st.expander("Extracted data (verify this is correct)"):
                         extracted_text = ""
@@ -395,15 +397,7 @@ if st.session_state.all_patients:
     wrong_team, ok_team = analyze_patients(all_patients, closed_teams)
 
     st.markdown("---")
-
-    # Header with clear button
-    header_col1, header_col2 = st.columns([4, 1])
-    with header_col1:
-        st.subheader("Analysis Results")
-    with header_col2:
-        if st.button("Clear & Start Over", type="secondary"):
-            st.session_state.all_patients = []
-            st.rerun()
+    st.subheader("Analysis Results")
 
     # Metrics row: Total / Need Reassignment / Team Correct
     col1, col2, col3 = st.columns(3)
@@ -484,3 +478,40 @@ if st.session_state.all_patients:
             st.code(ok_text, language=None)
         else:
             st.info("None yet")
+
+    # New section: Assignments by Team
+    st.markdown("---")
+    st.markdown("### New Assignments by Team")
+
+    # Build team rosters after reassignment
+    team_rosters = defaultdict(list)
+
+    # Add patients staying on their team
+    for patient in ok_team:
+        team_rosters[patient.current_team].append((patient.room, "stays"))
+
+    # Add patients being reassigned
+    for patient, rec_team in recommendations:
+        if rec_team:
+            team_rosters[rec_team].append((patient.room, "new"))
+
+    # Display in columns
+    team_col1, team_col2, team_col3, team_col4 = st.columns(4)
+    team_cols = [team_col1, team_col2, team_col3, team_col4]
+
+    teams_with_changes = [t for t in ALL_TEAMS if team_rosters[t] and t not in closed_teams]
+
+    for i, team in enumerate(teams_with_changes):
+        col = team_cols[i % 4]
+        with col:
+            roster = team_rosters[team]
+            new_count = sum(1 for _, status in roster if status == "new")
+            imcu = "*" if team in IMCU_TEAMS else ""
+
+            roster_text = f"Med {team}{imcu} (+{new_count} new)\n"
+            roster_text += "-" * 15 + "\n"
+            for room, status in sorted(roster):
+                marker = ">" if status == "new" else " "
+                roster_text += f"{marker} {room}\n"
+
+            st.code(roster_text, language=None)
