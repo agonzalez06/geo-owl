@@ -286,17 +286,9 @@ with tab1:
             key=f"uploader_{st.session_state.uploader_key}"
         )
 
-        # Buttons side by side with minimal gap
-        button_cols = st.columns([1, 1, 6], gap="small")
-        with button_cols[0]:
-            process_btn = st.button("Process Screenshots", type="primary", key="ocr_btn", disabled=not uploaded_files)
-        with button_cols[1]:
-            if st.button("Clear", key="clear_btn"):
-                st.session_state.all_patients = []
-                st.session_state.uploader_key += 1
-                st.rerun()
+        process_btn = st.button("Process Screenshots", type="primary", key="ocr_btn", disabled=not uploaded_files)
 
-            if process_btn:
+        if process_btn:
                 all_pairs = []
 
                 for uploaded_file in uploaded_files:
@@ -423,7 +415,17 @@ if st.session_state.all_patients:
     wrong_team, ok_team = analyze_patients(all_patients, closed_teams)
 
     st.markdown("---")
-    st.subheader("Analysis Results")
+
+    # Analysis header with Clear button
+    header_col1, header_col2, header_spacer = st.columns([1, 1, 6], gap="small")
+    with header_col1:
+        st.subheader("Analysis")
+    with header_col2:
+        st.markdown("<div style='padding-top: 8px;'></div>", unsafe_allow_html=True)
+        if st.button("Clear", key="clear_btn"):
+            st.session_state.all_patients = []
+            st.session_state.uploader_key += 1
+            st.rerun()
 
     # Metrics row: Total / Need Reassignment / Team Correct
     col1, col2, col3 = st.columns(3)
