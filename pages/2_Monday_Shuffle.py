@@ -361,21 +361,23 @@ if st.session_state.all_patients:
     for patient in all_patients:
         team_census[patient.current_team] += 1
 
-    # Generate recommendations with census balancing
-    # Track projected census as we make recommendations
-    projected_census = dict(team_census)
+    # Generate recommendations - 100% geographic (use current census as tie-breaker only)
     recommendations = []
 
     for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
         if acceptable:
-            # Pick team with lowest projected census from acceptable options
-            best_team = min(acceptable, key=lambda t: projected_census.get(t, 0))
-            projected_census[best_team] = projected_census.get(best_team, 0) + 1
-            # Decrement from current team since patient is moving
-            projected_census[patient.current_team] = projected_census.get(patient.current_team, 0) - 1
+            # Pick team with lowest current census from geographic options
+            best_team = min(acceptable, key=lambda t: team_census.get(t, 0))
             recommendations.append((patient, best_team))
         else:
             recommendations.append((patient, None))
+
+    # Calculate projected census if all recommendations followed
+    projected_census = dict(team_census)
+    for patient, rec_team in recommendations:
+        if rec_team:
+            projected_census[rec_team] = projected_census.get(rec_team, 0) + 1
+            projected_census[patient.current_team] = projected_census.get(patient.current_team, 0) - 1
 
     # Three columns: Census, Needs Reassignment, Team Correct
     res_col1, res_col2, res_col3 = st.columns(3)
