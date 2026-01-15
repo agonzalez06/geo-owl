@@ -350,61 +350,68 @@ if st.session_state.all_patients:
     st.markdown("---")
     st.subheader("Analysis Results")
 
+    # Metrics row: Total / Team Correct / Need Reassignment
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Patients", len(all_patients))
-    col2.metric("Need Reassignment", len(wrong_team))
-    col3.metric("Already OK", len(ok_team))
+    col2.metric("Team Correct", len(ok_team))
+    col3.metric("Need Reassignment", len(wrong_team))
 
-    res_col1, res_col2 = st.columns(2)
+    # Calculate current census
+    team_census = defaultdict(int)
+    for patient in all_patients:
+        team_census[patient.current_team] += 1
+
+    # Generate recommendations with census balancing
+    # Track projected census as we make recommendations
+    projected_census = team_census.copy()
+    recommendations = []
+
+    for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
+        if acceptable:
+            # Pick team with lowest projected census from acceptable options
+            best_team = min(acceptable, key=lambda t: projected_census.get(t, 0))
+            projected_census[best_team] += 1
+            # Decrement from current team since patient is moving
+            projected_census[patient.current_team] -= 1
+            recommendations.append((patient, best_team))
+        else:
+            recommendations.append((patient, None))
+
+    # Three columns: Census, Team Correct, Needs Reassignment
+    res_col1, res_col2, res_col3 = st.columns(3)
 
     with res_col1:
-        st.markdown("### Needs Reassignment")
-        if wrong_team:
-            wrong_text = ""
-            for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
-                if acceptable:
-                    options = ", ".join(f"Med {t}" for t in acceptable)
-                    wrong_text += f"{patient.room}: Med {patient.current_team} -> {options}\n"
-                else:
-                    wrong_text += f"{patient.room}: Med {patient.current_team} -> ? (no geo match)\n"
-            st.code(wrong_text, language=None)
-        else:
-            st.info("All patients are on acceptable teams!")
+        st.markdown("### Census")
+        census_text = ""
+        for team in ALL_TEAMS:
+            if team in closed_teams:
+                census_text += f"Med {team:2d}: CLOSED\n"
+            else:
+                count = team_census.get(team, 0)
+                imcu = "*" if team in IMCU_TEAMS else " "
+                census_text += f"Med {team:2d}{imcu}: {count:2d}\n"
+        census_text += "\n* = IMCU"
+        st.code(census_text, language=None)
 
     with res_col2:
-        st.markdown("### Already on Correct Team")
+        st.markdown("### Team Correct")
         if ok_team:
             ok_text = ""
             for patient in sorted(ok_team, key=lambda x: x.room):
-                ok_text += f"{patient.room}: Med {patient.current_team} OK\n"
+                ok_text += f"{patient.room} Med {patient.current_team}\n"
             st.code(ok_text, language=None)
         else:
-            st.info("No patients on correct teams yet.")
+            st.info("None yet")
 
-    # Summary by current team
-    st.markdown("### Current Census by Team")
-    team_counts = defaultdict(list)
-    for patient in all_patients:
-        team_counts[patient.current_team].append(patient.room)
-
-    census_text = ""
-    for team in ALL_TEAMS:
-        if team in closed_teams:
-            census_text += f"Med {team:2d}: CLOSED\n"
+    with res_col3:
+        st.markdown("### Needs Reassignment")
+        if recommendations:
+            wrong_text = ""
+            for patient, rec_team in recommendations:
+                if rec_team:
+                    wrong_text += f"{patient.room}: Med {patient.current_team} -> Med {rec_team}\n"
+                else:
+                    wrong_text += f"{patient.room}: Med {patient.current_team} -> ?\n"
+            st.code(wrong_text, language=None)
         else:
-            rooms = team_counts.get(team, [])
-            census_text += f"Med {team:2d}: {len(rooms):2d} patients\n"
-    st.code(census_text, language=None)
-
-    # Detailed wrong team list for copying
-    if wrong_team:
-        st.markdown("### Reassignment List (for Epic)")
-        epic_text = "Room       From    To Options\n"
-        epic_text += "-" * 40 + "\n"
-        for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
-            if acceptable:
-                options = "/".join(str(t) for t in acceptable)
-                epic_text += f"{patient.room:10} Med {patient.current_team:2d}  Med {options}\n"
-            else:
-                epic_text += f"{patient.room:10} Med {patient.current_team:2d}  ? (check location)\n"
-        st.code(epic_text, language=None)
+            st.info("All patients on correct teams!")
