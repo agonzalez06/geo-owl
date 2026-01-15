@@ -256,19 +256,28 @@ with tab1:
                     image = Image.open(uploaded_file)
                     gray_image = image.convert('L')
 
-                    raw_text = pytesseract.image_to_string(gray_image)
+                    # Try multiple OCR configurations to handle table layouts
+                    best_pairs = []
+                    best_text = ""
+
+                    for psm in [6, 4, 3, 11]:
+                        config = f'--psm {psm}'
+                        raw_text = pytesseract.image_to_string(gray_image, config=config)
+                        pairs = extract_from_ocr(raw_text)
+                        if len(pairs) > len(best_pairs):
+                            best_pairs = pairs
+                            best_text = raw_text
+                            best_psm = psm
 
                     with st.expander(f"Raw OCR from {uploaded_file.name}"):
-                        st.code(raw_text)
-                        # Debug info
-                        rooms_found = re.findall(r'\b(\d{3,4}[A-Z]?)\b', raw_text, re.IGNORECASE)
-                        teams_found = re.findall(r'Med\s*(\d{1,2})', raw_text, re.IGNORECASE)
-                        st.caption(f"Debug: {len(rooms_found)} room patterns, {len(teams_found)} Med patterns")
+                        st.code(best_text)
+                        rooms_found = re.findall(r'\b(\d{3,4}[A-Z]?)\b', best_text, re.IGNORECASE)
+                        teams_found = re.findall(r'Med\s*(\d{1,2})', best_text, re.IGNORECASE)
+                        st.caption(f"Debug: {len(rooms_found)} rooms, {len(teams_found)} teams (PSM {best_psm})")
 
-                    pairs = extract_from_ocr(raw_text)
-                    all_pairs.extend(pairs)
+                    all_pairs.extend(best_pairs)
 
-                    st.info(f"Found {len(pairs)} room-team pairs in {uploaded_file.name}")
+                    st.info(f"Found {len(best_pairs)} room-team pairs in {uploaded_file.name}")
 
                 # Deduplicate and store in session state
                 seen_rooms = set()
