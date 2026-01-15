@@ -10,6 +10,13 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 from collections import defaultdict
+from PIL import Image
+
+try:
+    import pytesseract
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
 
 # =============================================================================
 # CONFIGURATION (same as main app)
@@ -101,13 +108,7 @@ def analyze_patients(
     patients: list[ExistingPatient],
     closed_teams: set[int] = None
 ) -> tuple[list[tuple[ExistingPatient, list[int]]], list[ExistingPatient]]:
-    """
-    Analyze patients and separate into wrong team vs OK.
-
-    Returns:
-        wrong_team: List of (patient, acceptable_teams) for patients needing reassignment
-        ok_team: List of patients already on acceptable teams
-    """
+    """Analyze patients and separate into wrong team vs OK."""
     closed_teams = closed_teams or set()
 
     wrong_team = []
@@ -115,21 +116,73 @@ def analyze_patients(
 
     for patient in patients:
         geo_teams = get_geographic_teams(patient.floor) if patient.floor else []
-        # Filter out closed teams from acceptable options
         acceptable_teams = [t for t in geo_teams if t not in closed_teams]
 
         if patient.current_team in acceptable_teams:
-            # Patient is already on an acceptable geographic team
             ok_team.append(patient)
         elif acceptable_teams:
-            # Patient is on wrong team, has geographic options
             wrong_team.append((patient, acceptable_teams))
         else:
-            # No geographic teams (unknown floor or all geo teams closed)
-            # Consider them "wrong" with empty acceptable list
             wrong_team.append((patient, []))
 
     return wrong_team, ok_team
+
+
+def extract_from_ocr(text: str) -> list[tuple[str, int]]:
+    """
+    Extract room-team pairs from OCR text.
+
+    Tries multiple strategies:
+    1. Same-line matching (room and Med X on same line)
+    2. Column matching (extract all rooms, all teams, zip them)
+    """
+    pairs = []
+    seen_rooms = set()
+
+    # Strategy 1: Look for room and team on same line
+    for line in text.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+
+        room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line, re.IGNORECASE)
+        team_match = re.search(r'Med\s*(\d{1,2})', line, re.IGNORECASE)
+
+        if room_match and team_match:
+            room = room_match.group(1).upper()
+            team = int(team_match.group(1))
+            if room not in seen_rooms and 1 <= team <= 15:
+                seen_rooms.add(room)
+                pairs.append((room, team))
+
+    # If strategy 1 found enough pairs, return them
+    if len(pairs) >= 5:
+        return pairs
+
+    # Strategy 2: Column matching
+    all_rooms = re.findall(r'\b(\d{3})[A-Z]?\b', text, re.IGNORECASE)
+    unique_rooms = []
+    for r in all_rooms:
+        if r not in unique_rooms:
+            unique_rooms.append(r)
+
+    all_teams = re.findall(r'Med\s*(\d{1,2})', text, re.IGNORECASE)
+    all_teams = [int(t) for t in all_teams if 1 <= int(t) <= 15]
+
+    if len(unique_rooms) > 0 and len(all_teams) > 0:
+        if len(unique_rooms) == len(all_teams):
+            for room, team in zip(unique_rooms, all_teams):
+                if room not in seen_rooms:
+                    seen_rooms.add(room)
+                    pairs.append((room, team))
+        elif abs(len(unique_rooms) - len(all_teams)) <= max(len(unique_rooms), len(all_teams)) * 0.1:
+            min_len = min(len(unique_rooms), len(all_teams))
+            for room, team in zip(unique_rooms[:min_len], all_teams[:min_len]):
+                if room not in seen_rooms:
+                    seen_rooms.add(room)
+                    pairs.append((room, team))
+
+    return pairs
 
 
 # =============================================================================
@@ -160,134 +213,198 @@ if closed_input:
 
 st.markdown("---")
 
-st.markdown("""
-**Enter room and current team** - one per line.
+# Input method tabs
+tab1, tab2 = st.tabs(["Screenshot OCR", "Manual Entry"])
 
-Format: `Room Team` (e.g., `304A 1` or `304A Med 1`)
+# Use session state to persist patients across reruns
+if 'all_patients' not in st.session_state:
+    st.session_state.all_patients = []
 
-Examples:
-```
-304A 1
-343B 5
-534 Med 10
-435A 7
-```
-""")
+with tab1:
+    st.markdown("""
+    **Upload Epic screenshots** showing room numbers and team assignments.
 
-paste_input = st.text_area(
-    "Room and Team (one per line)",
-    height=400,
-    placeholder="304A 1\n343B 5\n534 Med 10\n435A 7\n..."
-)
+    For best results, crop screenshots to show just the Room and Team columns.
+    """)
 
-if st.button("Analyze Teams", type="primary"):
-    if not paste_input:
-        st.warning("Please enter room and team data first.")
+    if not OCR_AVAILABLE:
+        st.error("OCR (pytesseract) not available. Use Manual Entry tab instead.")
     else:
-        all_patients = []
-        seen_rooms = set()
-        parse_errors = []
+        uploaded_files = st.file_uploader(
+            "Upload Epic screenshots",
+            type=['png', 'jpg', 'jpeg'],
+            accept_multiple_files=True
+        )
 
-        for line in paste_input.strip().split('\n'):
-            line = line.strip()
-            if not line:
-                continue
+        if uploaded_files:
+            if st.button("Process Screenshots", type="primary", key="ocr_btn"):
+                all_pairs = []
 
-            # Look for room number (3 digits with optional letter)
-            room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line, re.IGNORECASE)
-            if not room_match:
-                parse_errors.append(f"No room found: {line}")
-                continue
+                for uploaded_file in uploaded_files:
+                    image = Image.open(uploaded_file)
+                    gray_image = image.convert('L')
 
-            room = room_match.group(1).upper()
+                    raw_text = pytesseract.image_to_string(gray_image)
 
-            # Look for team number (with or without "Med" prefix)
-            team_match = re.search(r'(?:Med\s*)?(\d{1,2})\b', line[room_match.end():], re.IGNORECASE)
-            if not team_match:
-                parse_errors.append(f"No team found: {line}")
-                continue
+                    with st.expander(f"Raw OCR from {uploaded_file.name}"):
+                        st.code(raw_text)
 
-            team_num = int(team_match.group(1))
+                    pairs = extract_from_ocr(raw_text)
+                    all_pairs.extend(pairs)
 
-            if team_num < 1 or team_num > 15:
-                parse_errors.append(f"Invalid team {team_num}: {line}")
-                continue
+                    st.info(f"Found {len(pairs)} room-team pairs in {uploaded_file.name}")
 
-            if room in seen_rooms:
-                continue
-            seen_rooms.add(room)
+                # Deduplicate and store in session state
+                seen_rooms = set()
+                st.session_state.all_patients = []
+                for room, team in all_pairs:
+                    if room not in seen_rooms:
+                        seen_rooms.add(room)
+                        floor = normalize_floor(room)
+                        st.session_state.all_patients.append(
+                            ExistingPatient(room=room, current_team=team, floor=floor)
+                        )
 
-            floor = normalize_floor(room)
-            all_patients.append(ExistingPatient(room=room, current_team=team_num, floor=floor))
+                if st.session_state.all_patients:
+                    st.success(f"Total: {len(st.session_state.all_patients)} unique patients extracted")
 
-        if parse_errors:
-            with st.expander(f"Parse warnings ({len(parse_errors)})"):
-                for err in parse_errors:
-                    st.warning(err)
-
-        st.success(f"Parsed {len(all_patients)} patients")
-
-        if all_patients:
-            wrong_team, ok_team = analyze_patients(all_patients, closed_teams)
-
-            st.markdown("---")
-            st.subheader("Analysis Results")
-
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Patients", len(all_patients))
-            col2.metric("Need Reassignment", len(wrong_team))
-            col3.metric("Already OK", len(ok_team))
-
-            res_col1, res_col2 = st.columns(2)
-
-            with res_col1:
-                st.markdown("### Needs Reassignment")
-                if wrong_team:
-                    wrong_text = ""
-                    for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
-                        if acceptable:
-                            options = ", ".join(f"Med {t}" for t in acceptable)
-                            wrong_text += f"{patient.room}: Med {patient.current_team} -> {options}\n"
-                        else:
-                            wrong_text += f"{patient.room}: Med {patient.current_team} -> ? (no geo match)\n"
-                    st.code(wrong_text, language=None)
+                    with st.expander("Extracted data (verify this is correct)"):
+                        extracted_text = ""
+                        for p in sorted(st.session_state.all_patients, key=lambda x: x.room):
+                            extracted_text += f"{p.room} Med {p.current_team}\n"
+                        st.code(extracted_text)
                 else:
-                    st.info("All patients are on acceptable teams!")
+                    st.warning("No room-team pairs found. Check the raw OCR output above.")
+                    st.markdown("""
+                    **Troubleshooting:**
+                    - Make sure the screenshot shows both Room and Team columns
+                    - Try cropping to just those two columns
+                    - Use Manual Entry tab if OCR isn't working
+                    """)
 
-            with res_col2:
-                st.markdown("### Already on Correct Team")
-                if ok_team:
-                    ok_text = ""
-                    for patient in sorted(ok_team, key=lambda x: x.room):
-                        ok_text += f"{patient.room}: Med {patient.current_team} OK\n"
-                    st.code(ok_text, language=None)
+with tab2:
+    st.markdown("""
+    **Enter room and current team** - one per line.
+
+    Format: `Room Team` (e.g., `304A 1` or `304A Med 1`)
+    """)
+
+    paste_input = st.text_area(
+        "Room and Team (one per line)",
+        height=400,
+        placeholder="304A 1\n343B 5\n534 Med 10\n435A 7\n..."
+    )
+
+    if st.button("Analyze Teams", type="primary", key="manual_btn"):
+        if not paste_input:
+            st.warning("Please enter room and team data first.")
+        else:
+            seen_rooms = set()
+            parse_errors = []
+            st.session_state.all_patients = []
+
+            for line in paste_input.strip().split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+
+                room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line, re.IGNORECASE)
+                if not room_match:
+                    parse_errors.append(f"No room found: {line}")
+                    continue
+
+                room = room_match.group(1).upper()
+
+                team_match = re.search(r'(?:Med\s*)?(\d{1,2})\b', line[room_match.end():], re.IGNORECASE)
+                if not team_match:
+                    parse_errors.append(f"No team found: {line}")
+                    continue
+
+                team_num = int(team_match.group(1))
+
+                if team_num < 1 or team_num > 15:
+                    parse_errors.append(f"Invalid team {team_num}: {line}")
+                    continue
+
+                if room in seen_rooms:
+                    continue
+                seen_rooms.add(room)
+
+                floor = normalize_floor(room)
+                st.session_state.all_patients.append(
+                    ExistingPatient(room=room, current_team=team_num, floor=floor)
+                )
+
+            if parse_errors:
+                with st.expander(f"Parse warnings ({len(parse_errors)})"):
+                    for err in parse_errors:
+                        st.warning(err)
+
+            st.success(f"Parsed {len(st.session_state.all_patients)} patients")
+
+# Process results if we have patients
+if st.session_state.all_patients:
+    all_patients = st.session_state.all_patients
+    wrong_team, ok_team = analyze_patients(all_patients, closed_teams)
+
+    st.markdown("---")
+    st.subheader("Analysis Results")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Patients", len(all_patients))
+    col2.metric("Need Reassignment", len(wrong_team))
+    col3.metric("Already OK", len(ok_team))
+
+    res_col1, res_col2 = st.columns(2)
+
+    with res_col1:
+        st.markdown("### Needs Reassignment")
+        if wrong_team:
+            wrong_text = ""
+            for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
+                if acceptable:
+                    options = ", ".join(f"Med {t}" for t in acceptable)
+                    wrong_text += f"{patient.room}: Med {patient.current_team} -> {options}\n"
                 else:
-                    st.info("No patients on correct teams yet.")
+                    wrong_text += f"{patient.room}: Med {patient.current_team} -> ? (no geo match)\n"
+            st.code(wrong_text, language=None)
+        else:
+            st.info("All patients are on acceptable teams!")
 
-            # Summary by current team
-            st.markdown("### Current Census by Team")
-            team_counts = defaultdict(list)
-            for patient in all_patients:
-                team_counts[patient.current_team].append(patient.room)
+    with res_col2:
+        st.markdown("### Already on Correct Team")
+        if ok_team:
+            ok_text = ""
+            for patient in sorted(ok_team, key=lambda x: x.room):
+                ok_text += f"{patient.room}: Med {patient.current_team} OK\n"
+            st.code(ok_text, language=None)
+        else:
+            st.info("No patients on correct teams yet.")
 
-            census_text = ""
-            for team in ALL_TEAMS:
-                if team in closed_teams:
-                    census_text += f"Med {team:2d}: CLOSED\n"
-                else:
-                    rooms = team_counts.get(team, [])
-                    census_text += f"Med {team:2d}: {len(rooms):2d} patients\n"
-            st.code(census_text, language=None)
+    # Summary by current team
+    st.markdown("### Current Census by Team")
+    team_counts = defaultdict(list)
+    for patient in all_patients:
+        team_counts[patient.current_team].append(patient.room)
 
-            # Detailed wrong team list for copying
-            if wrong_team:
-                st.markdown("### Reassignment List (for Epic)")
-                epic_text = "Room       From    To Options\n"
-                epic_text += "-" * 40 + "\n"
-                for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
-                    if acceptable:
-                        options = "/".join(str(t) for t in acceptable)
-                        epic_text += f"{patient.room:10} Med {patient.current_team:2d}  Med {options}\n"
-                    else:
-                        epic_text += f"{patient.room:10} Med {patient.current_team:2d}  ? (check location)\n"
-                st.code(epic_text, language=None)
+    census_text = ""
+    for team in ALL_TEAMS:
+        if team in closed_teams:
+            census_text += f"Med {team:2d}: CLOSED\n"
+        else:
+            rooms = team_counts.get(team, [])
+            census_text += f"Med {team:2d}: {len(rooms):2d} patients\n"
+    st.code(census_text, language=None)
+
+    # Detailed wrong team list for copying
+    if wrong_team:
+        st.markdown("### Reassignment List (for Epic)")
+        epic_text = "Room       From    To Options\n"
+        epic_text += "-" * 40 + "\n"
+        for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
+            if acceptable:
+                options = "/".join(str(t) for t in acceptable)
+                epic_text += f"{patient.room:10} Med {patient.current_team:2d}  Med {options}\n"
+            else:
+                epic_text += f"{patient.room:10} Med {patient.current_team:2d}  ? (check location)\n"
+        st.code(epic_text, language=None)
