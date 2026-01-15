@@ -284,6 +284,10 @@ st.set_page_config(
     layout="wide"
 )
 
+# Sidebar branding
+st.sidebar.image("Gemini_Generated_Image_2hkaog2hkaog2hka.png", width=80)
+st.sidebar.title("Geo Owl")
+
 # JavaScript to make Enter key move to next input field
 components.html("""
 <script>
