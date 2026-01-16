@@ -1,0 +1,21 @@
+# Secrets (contains passwords)
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+env/
+venv/
+.env
+
+# macOS
+.DS_Store
+
+# Logs
+logs/
+
+# Temporary files
+*.tmp
+~$*

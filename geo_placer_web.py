@@ -511,6 +511,42 @@ st.set_page_config(
     layout="wide"
 )
 
+# =============================================================================
+# PASSWORD PROTECTION
+# =============================================================================
+
+def check_password():
+    """Returns True if the user has entered the correct password."""
+
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        return True
+
+    # Get password from secrets (set in Streamlit Cloud or .streamlit/secrets.toml)
+    try:
+        correct_password = st.secrets["password"]
+    except (KeyError, FileNotFoundError):
+        # Fallback for local dev - you can change this
+        correct_password = "geoowl2026"
+
+    st.markdown("### 🔒 Login Required")
+    password = st.text_input("Password", type="password", key="password_input")
+
+    if st.button("Login", type="primary"):
+        if password == correct_password:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect password")
+
+    return False
+
+# Check password before showing anything else
+if not check_password():
+    st.stop()
+
 # Initialize dark mode based on time of day (dark after 7pm, before 7am)
 if 'dark_mode' not in st.session_state:
     hour = datetime.now().hour
