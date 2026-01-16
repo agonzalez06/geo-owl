@@ -66,6 +66,8 @@ def try_all_rotations(image):
     best_text = ""
     best_rotation = 0
     best_psm = 6
+    last_error = None
+    any_success = False
 
     gray = image.convert('L')
 
@@ -84,14 +86,23 @@ def try_all_rotations(image):
             config = f'--psm {psm}'
             try:
                 raw_text = pytesseract.image_to_string(rotated, config=config)
+                any_success = True
                 pairs = extract_from_ocr(raw_text)
                 if len(pairs) > len(best_pairs):
                     best_pairs = pairs
                     best_text = raw_text
                     best_rotation = rotation
                     best_psm = psm
-            except Exception:
+                # Keep best raw text even if no pairs found
+                if not best_text and raw_text:
+                    best_text = raw_text
+            except Exception as e:
+                last_error = str(e)
                 continue
+
+    # If no success at all, raise the last error
+    if not any_success and last_error:
+        raise Exception(f"OCR failed: {last_error}")
 
     return best_pairs, best_text, best_rotation, best_psm
 
@@ -860,16 +871,21 @@ with tab_shuffle:
                 all_pairs = []
 
                 for uploaded_file in uploaded_files:
-                    image = Image.open(uploaded_file)
-
-                    # Try EXIF transpose first (handles phone photo orientation)
                     try:
-                        image = ImageOps.exif_transpose(image)
-                    except Exception:
-                        pass
+                        st.write(f"Processing {uploaded_file.name}...")
+                        image = Image.open(uploaded_file)
 
-                    # Use rotation-aware OCR that tries all orientations
-                    best_pairs, best_text, best_rotation, best_psm = try_all_rotations(image)
+                        # Try EXIF transpose first (handles phone photo orientation)
+                        try:
+                            image = ImageOps.exif_transpose(image)
+                        except Exception:
+                            pass
+
+                        # Use rotation-aware OCR that tries all orientations
+                        best_pairs, best_text, best_rotation, best_psm = try_all_rotations(image)
+                    except Exception as e:
+                        st.error(f"Error processing {uploaded_file.name}: {e}")
+                        best_pairs, best_text, best_rotation, best_psm = [], "", 0, 6
 
                     with st.expander(f"Raw OCR from {uploaded_file.name}"):
                         st.code(best_text)
