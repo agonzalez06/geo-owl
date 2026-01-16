@@ -573,31 +573,72 @@ dark_mode_css = """
         color: #e0e0e0 !important;
         border-color: #0f3460 !important;
     }
+    /* Placeholder text */
+    .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+        color: #888888 !important;
+    }
     .stDataFrame {
         background-color: #16213e;
     }
     [data-testid="stMetricDelta"] svg {
         fill: #e0e0e0;
     }
+    /* Buttons in dark mode */
+    .stButton > button:not([kind="primary"]) {
+        background-color: #16213e !important;
+        color: #e0e0e0 !important;
+        border-color: #0f3460 !important;
+    }
+    .stButton > button:not([kind="primary"]):hover {
+        background-color: #0f3460 !important;
+        border-color: #0f3460 !important;
+    }
+    /* File uploader */
+    [data-testid="stFileUploader"] {
+        background-color: #16213e;
+    }
+    [data-testid="stFileUploader"] label {
+        color: #e0e0e0 !important;
+    }
+"""
+
+# CSS for fixed position dark mode toggle
+toggle_css = """
+    /* Position toggle in top right */
+    div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .dark-toggle) {
+        position: fixed;
+        top: 0.5rem;
+        right: 1rem;
+        z-index: 999;
+        width: auto !important;
+    }
+    .dark-toggle label {
+        font-size: 0.8rem;
+    }
 """
 
 if st.session_state.dark_mode:
-    st.markdown(base_css + dark_mode_css + "</style>", unsafe_allow_html=True)
+    st.markdown(base_css + dark_mode_css + toggle_css + "</style>", unsafe_allow_html=True)
 else:
-    st.markdown(base_css + "</style>", unsafe_allow_html=True)
+    st.markdown(base_css + toggle_css + "</style>", unsafe_allow_html=True)
 
-# Header with logo and dark mode toggle
-header_col1, header_col2, header_col3 = st.columns([1, 7, 1])
+# Dark mode toggle in top right corner
+toggle_col = st.columns([20, 1])[1]
+with toggle_col:
+    st.markdown('<div class="dark-toggle">', unsafe_allow_html=True)
+    new_mode = st.toggle("🌙", value=st.session_state.dark_mode, key="dark_mode_toggle", label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
+    if new_mode != st.session_state.dark_mode:
+        st.session_state.dark_mode = new_mode
+        st.rerun()
+
+# Header with logo
+header_col1, header_col2 = st.columns([1, 8])
 with header_col1:
     st.image("Gemini_Generated_Image_2hkaog2hkaog2hka.png", use_container_width=True)
 with header_col2:
     st.title("Geographic Placement Optimizer")
     st.markdown("Optimal team assignments based on geography and census.")
-with header_col3:
-    dark_label = "🌙" if st.session_state.dark_mode else "☀️"
-    if st.button(dark_label, key="dark_mode_toggle", help="Toggle dark/light mode"):
-        st.session_state.dark_mode = not st.session_state.dark_mode
-        st.rerun()
 
 # Geography reference (collapsible)
 with st.expander("Team Geography Reference"):
