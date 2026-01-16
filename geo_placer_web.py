@@ -865,9 +865,7 @@ with tab_shuffle:
                 key=f"shuffle_uploader_{st.session_state.shuffle_uploader_key}"
             )
 
-            process_btn = st.button("Process Screenshots", type="primary", key="shuffle_ocr_btn", disabled=not uploaded_files)
-
-            if process_btn:
+            if uploaded_files:
                 all_pairs = []
 
                 for uploaded_file in uploaded_files:
