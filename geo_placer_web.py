@@ -763,7 +763,7 @@ with tab_shuffle:
 
     with ocr_tab:
         st.markdown("""
-        **Upload Epic screenshots** showing room numbers and team assignments.
+        **Upload EPIC screenshots with room numbers and team assignments. DO NOT UPLOAD PHI.**
 
         For best results, crop screenshots to show just the Room and Team columns.
         """)
@@ -772,7 +772,7 @@ with tab_shuffle:
             st.error("OCR (pytesseract) not available. Use Manual Entry tab instead.")
         else:
             uploaded_files = st.file_uploader(
-                "Upload Epic screenshots",
+                "Upload EPIC screenshots with room numbers and team assignments. DO NOT UPLOAD PHI.",
                 type=['png', 'jpg', 'jpeg'],
                 accept_multiple_files=True,
                 key=f"shuffle_uploader_{st.session_state.shuffle_uploader_key}"
