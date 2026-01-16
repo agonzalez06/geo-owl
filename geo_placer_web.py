@@ -602,35 +602,11 @@ dark_mode_css = """
     }
 """
 
-# CSS for fixed position dark mode toggle
-toggle_css = """
-    /* Position toggle in top right */
-    div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .dark-toggle) {
-        position: fixed;
-        top: 0.5rem;
-        right: 1rem;
-        z-index: 999;
-        width: auto !important;
-    }
-    .dark-toggle label {
-        font-size: 0.8rem;
-    }
-"""
-
-if st.session_state.dark_mode:
-    st.markdown(base_css + dark_mode_css + toggle_css + "</style>", unsafe_allow_html=True)
-else:
-    st.markdown(base_css + toggle_css + "</style>", unsafe_allow_html=True)
-
-# Dark mode toggle in top right corner
-toggle_col = st.columns([20, 1])[1]
-with toggle_col:
-    st.markdown('<div class="dark-toggle">', unsafe_allow_html=True)
-    new_mode = st.toggle("🌙", value=st.session_state.dark_mode, key="dark_mode_toggle", label_visibility="collapsed")
-    st.markdown('</div>', unsafe_allow_html=True)
-    if new_mode != st.session_state.dark_mode:
-        st.session_state.dark_mode = new_mode
-        st.rerun()
+# Dark mode disabled for now - keeping CSS for later
+# if st.session_state.dark_mode:
+#     st.markdown(base_css + dark_mode_css + "</style>", unsafe_allow_html=True)
+# else:
+st.markdown(base_css + "</style>", unsafe_allow_html=True)
 
 # Header with logo
 header_col1, header_col2 = st.columns([1, 8])
