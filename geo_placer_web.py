@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Optional
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 
 try:
@@ -19,6 +20,12 @@ try:
     OCR_AVAILABLE = True
 except ImportError:
     OCR_AVAILABLE = False
+
+try:
+    from anc_generator import generate_anc_for_date
+    ANC_AVAILABLE = True
+except ImportError:
+    ANC_AVAILABLE = False
 
 
 def preprocess_image_for_ocr(image):
@@ -636,7 +643,7 @@ Room convention: X01-X20 = West, X30-X50 = East
     st.code(ref_text, language=None)
 
 # Main tabs
-tab_nights, tab_shuffle = st.tabs(["Overnight Redis", "Monday Shuffle"])
+tab_nights, tab_shuffle, tab_anc = st.tabs(["Overnight Redis", "Monday Shuffle", "ANC Sheet"])
 
 # =============================================================================
 # TAB 1: NIGHTS (Overnight Placement)
@@ -1218,3 +1225,41 @@ with tab_shuffle:
                         roster_text += "(no changes)"
 
                     st.code(roster_text, language=None)
+
+# =============================================================================
+# TAB 3: ANC SHEET
+# =============================================================================
+
+with tab_anc:
+    st.subheader("ANC Sheet Generator")
+
+    if not ANC_AVAILABLE:
+        st.error("ANC generator not available. Check that anc_generator.py is in the same directory.")
+    else:
+        today = datetime.now()
+        st.write(f"Generate ANC sheet for **{today.strftime('%A, %B %d, %Y')}**")
+
+        if st.button("Generate ANC Sheet", type="primary", key="anc_generate_btn"):
+            with st.spinner("Generating ANC sheet..."):
+                try:
+                    output_dir = Path(__file__).parent
+                    output_path = generate_anc_for_date(today, output_dir=str(output_dir), output_format='docx')
+
+                    if output_path and Path(output_path).exists():
+                        st.success(f"ANC sheet generated!")
+
+                        # Provide download button
+                        with open(output_path, "rb") as f:
+                            file_bytes = f.read()
+
+                        filename = Path(output_path).name
+                        st.download_button(
+                            label="Download ANC Sheet",
+                            data=file_bytes,
+                            file_name=filename,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                    else:
+                        st.error("Failed to generate ANC sheet.")
+                except Exception as e:
+                    st.error(f"Error generating ANC sheet: {e}")
