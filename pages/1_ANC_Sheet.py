@@ -25,28 +25,7 @@ target_datetime = datetime.combine(selected_date, datetime.min.time())
 # Project directory
 project_dir = Path(__file__).parent.parent
 
-# Check if file already exists for this date
-date_str = selected_date.strftime("%m %d %y")
-pattern = f"AUTO_{date_str}*.docx"
-existing_files = list(project_dir.glob(pattern))
-
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    generate_btn = st.button("Generate ANC Sheet", type="primary")
-
-with col2:
-    if existing_files:
-        with open(existing_files[0], "rb") as f:
-            st.download_button(
-                "Download Existing",
-                data=f.read(),
-                file_name=existing_files[0].name,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-
-if existing_files:
-    st.info(f"Existing file: **{existing_files[0].name}**")
+generate_btn = st.button("Generate ANC Sheet", type="primary")
 
 if generate_btn:
     with st.spinner(f"Generating ANC sheet for {selected_date.strftime('%A, %B %d, %Y')}..."):
