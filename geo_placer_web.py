@@ -69,6 +69,13 @@ def try_all_rotations(image):
     last_error = None
     any_success = False
 
+    # Resize large images for faster OCR (max 1500px on longest side)
+    max_dimension = 1500
+    if max(image.size) > max_dimension:
+        ratio = max_dimension / max(image.size)
+        new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
+        image = image.resize(new_size, Image.LANCZOS)
+
     gray = image.convert('L')
 
     # Apply preprocessing
