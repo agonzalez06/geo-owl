@@ -1000,11 +1000,11 @@ with tab_shuffle:
 
         st.markdown("---")
 
-        header_col1, header_col2, header_spacer = st.columns([1.2, 0.8, 8], gap="small")
+        header_col1, header_col2 = st.columns([3, 17])
         with header_col1:
-            st.subheader("Analysis")
+            st.markdown('<p style="font-size: 1.5rem; font-weight: 600; margin: 0; display: inline;">Analysis</p>', unsafe_allow_html=True)
         with header_col2:
-            if st.button("Clear", key="shuffle_clear_btn"):
+            if st.button("Clear", key="shuffle_clear_btn", type="secondary"):
                 st.session_state.shuffle_patients = []
                 st.session_state.shuffle_uploader_key += 1
                 st.rerun()
