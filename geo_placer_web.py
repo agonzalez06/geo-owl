@@ -1237,6 +1237,15 @@ with tab_anc:
     # Initialize auth state for ANC tab
     if 'anc_authenticated' not in st.session_state:
         st.session_state.anc_authenticated = False
+        st.session_state.anc_auth_time = None
+
+    # Check for session timeout (5 minutes)
+    SESSION_TIMEOUT = 5 * 60  # 5 minutes in seconds
+    if st.session_state.anc_authenticated and st.session_state.anc_auth_time:
+        elapsed = (datetime.now() - st.session_state.anc_auth_time).total_seconds()
+        if elapsed > SESSION_TIMEOUT:
+            st.session_state.anc_authenticated = False
+            st.session_state.anc_auth_time = None
 
     # Password check for ANC tab
     if not st.session_state.anc_authenticated:
@@ -1253,6 +1262,7 @@ with tab_anc:
             if st.button("Login", type="primary", key="anc_login_btn"):
                 if password == correct_password:
                     st.session_state.anc_authenticated = True
+                    st.session_state.anc_auth_time = datetime.now()
                     st.rerun()
                 else:
                     st.error("Incorrect password")
