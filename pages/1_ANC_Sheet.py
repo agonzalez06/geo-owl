@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 """
-ANC Sheet Viewer - View the current ANC sheet
+ANC Sheet Generator - Generate ANC sheets for any date
 """
 
 import streamlit as st
 from pathlib import Path
 from datetime import datetime, date
-import re
-
-try:
-    from docx import Document
-    DOCX_AVAILABLE = True
-except ImportError:
-    DOCX_AVAILABLE = False
+import sys
 
 st.set_page_config(
     page_title="ANC Sheet - Geo Owl",
@@ -20,93 +14,69 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("ANC Sheet")
+st.title("ANC Sheet Generator")
 
 # Date picker (default to today)
 selected_date = st.date_input("Select date", value=date.today())
 
-# Find ANC sheet for selected date
+# Convert to datetime
+target_datetime = datetime.combine(selected_date, datetime.min.time())
+
+# Project directory
 project_dir = Path(__file__).parent.parent
 
-# Build expected filename pattern: AUTO_MM DD YY
+# Check if file already exists for this date
 date_str = selected_date.strftime("%m %d %y")
 pattern = f"AUTO_{date_str}*.docx"
-matching_files = list(project_dir.glob(pattern))
+existing_files = list(project_dir.glob(pattern))
 
-if matching_files:
-    anc_file = matching_files[0]
+col1, col2 = st.columns([1, 1])
 
-    # Download button
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.success(f"Found: **{anc_file.name}**")
-    with col2:
-        with open(anc_file, "rb") as f:
+with col1:
+    generate_btn = st.button("Generate ANC Sheet", type="primary")
+
+with col2:
+    if existing_files:
+        with open(existing_files[0], "rb") as f:
             st.download_button(
-                "Download",
+                "Download Existing",
                 data=f.read(),
-                file_name=anc_file.name,
+                file_name=existing_files[0].name,
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
 
-    # Preview content
-    st.markdown("---")
-    st.subheader("Preview")
+if existing_files:
+    st.info(f"Existing file: **{existing_files[0].name}**")
 
-    if DOCX_AVAILABLE:
+if generate_btn:
+    with st.spinner(f"Generating ANC sheet for {selected_date.strftime('%A, %B %d, %Y')}..."):
         try:
-            doc = Document(anc_file)
+            # Add project dir to path for imports
+            sys.path.insert(0, str(project_dir))
+            from anc_generator import generate_anc_for_date
 
-            # Extract tables (ANC sheets are mostly tables)
-            for i, table in enumerate(doc.tables):
-                if i >= 1:  # Only show first table (first page)
-                    break
+            output_path = generate_anc_for_date(
+                target_datetime,
+                output_dir=str(project_dir),
+                output_format='docx',
+                validate=True,
+                notify_on_failure=False
+            )
 
-                # Convert table to markdown-ish format
-                table_data = []
-                for row in table.rows:
-                    row_data = [cell.text.strip() for cell in row.cells]
-                    table_data.append(row_data)
+            if output_path:
+                st.success(f"Generated: **{Path(output_path).name}**")
 
-                if table_data:
-                    # Display as dataframe for better formatting
-                    import pandas as pd
-                    df = pd.DataFrame(table_data[1:], columns=table_data[0] if table_data else None)
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-
-            # Also show any paragraphs (headers, etc.)
-            for para in doc.paragraphs[:10]:  # First 10 paragraphs
-                text = para.text.strip()
-                if text:
-                    st.markdown(text)
+                # Offer download
+                with open(output_path, "rb") as f:
+                    st.download_button(
+                        "Download",
+                        data=f.read(),
+                        file_name=Path(output_path).name,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key="download_new"
+                    )
+            else:
+                st.error("Generation failed. Check logs for details.")
 
         except Exception as e:
-            st.error(f"Error reading document: {e}")
-            st.info("Download the file to view the full content.")
-    else:
-        st.warning("Install python-docx to enable preview: `pip install python-docx`")
-        st.info("Download the file to view the full content.")
-
-else:
-    st.warning(f"No ANC sheet found for {selected_date.strftime('%A, %B %d, %Y')}")
-    st.markdown("""
-    **To generate an ANC sheet**, run from terminal:
-    ```
-    python anc_generator.py
-    ```
-    """)
-
-    # Show available dates
-    all_files = list(project_dir.glob("AUTO_*.docx"))
-    if all_files:
-        st.markdown("---")
-        st.subheader("Available dates")
-        for f in sorted(all_files, reverse=True)[:5]:
-            # Parse date from filename: AUTO_MM DD YY ...
-            match = re.search(r'AUTO_(\d{2}) (\d{2}) (\d{2})', f.name)
-            if match:
-                try:
-                    file_date = datetime.strptime(f"{match.group(1)}/{match.group(2)}/{match.group(3)}", "%m/%d/%y")
-                    st.caption(f"- {file_date.strftime('%A, %B %d, %Y')}")
-                except:
-                    st.caption(f"- {f.name}")
+            st.error(f"Error: {e}")
