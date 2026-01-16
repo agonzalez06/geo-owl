@@ -467,7 +467,7 @@ Room convention: X01-X20 = West, X30-X50 = East
     st.code(ref_text, language=None)
 
 # Main tabs
-tab_nights, tab_shuffle = st.tabs(["Nights", "Monday Shuffle"])
+tab_nights, tab_shuffle = st.tabs(["Overnight Redis", "Monday Shuffle"])
 
 # =============================================================================
 # TAB 1: NIGHTS (Overnight Placement)
