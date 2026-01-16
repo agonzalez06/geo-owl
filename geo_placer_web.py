@@ -1255,19 +1255,24 @@ with tab_anc:
         except (KeyError, FileNotFoundError):
             correct_password = "geoowl2026"
 
-        st.markdown("🔒 **Password required to access ANC sheets**")
+        st.markdown("🔒 **Password required**")
         col1, col2 = st.columns([1, 3])
         with col1:
-            with st.form("anc_login_form"):
-                password = st.text_input("Password", type="password", key="anc_password_input", label_visibility="collapsed")
-                submitted = st.form_submit_button("Login", type="primary")
-                if submitted:
-                    if password == correct_password:
-                        st.session_state.anc_authenticated = True
-                        st.session_state.anc_auth_time = datetime.now()
-                        st.rerun()
-                    else:
-                        st.error("Incorrect password")
+            password = st.text_input(
+                "Password",
+                type="password",
+                key="anc_password_input",
+                label_visibility="collapsed",
+                placeholder=""
+            )
+            # Check password on every input (Enter key triggers rerun)
+            if password:
+                if password == correct_password:
+                    st.session_state.anc_authenticated = True
+                    st.session_state.anc_auth_time = datetime.now()
+                    st.rerun()
+                elif len(password) >= len(correct_password):
+                    st.error("Incorrect")
 
     elif not ANC_AVAILABLE:
         st.error("ANC generator not available. Check that anc_generator.py is in the same directory.")
