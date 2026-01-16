@@ -1258,21 +1258,21 @@ with tab_anc:
         st.markdown("🔒 **Password required**")
         col1, col2 = st.columns([1, 3])
         with col1:
-            password = st.text_input(
-                "Password",
-                type="password",
-                key="anc_password_input",
-                label_visibility="collapsed",
-                placeholder=""
-            )
-            # Check password on every input (Enter key triggers rerun)
-            if password:
+            with st.form("anc_login_form", clear_on_submit=False, border=False):
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    label_visibility="collapsed"
+                )
+                login_clicked = st.form_submit_button("Login", type="primary")
+
+            if login_clicked:
                 if password == correct_password:
                     st.session_state.anc_authenticated = True
                     st.session_state.anc_auth_time = datetime.now()
                     st.rerun()
-                elif len(password) >= len(correct_password):
-                    st.error("Incorrect")
+                else:
+                    st.error("Incorrect password")
 
     elif not ANC_AVAILABLE:
         st.error("ANC generator not available. Check that anc_generator.py is in the same directory.")
