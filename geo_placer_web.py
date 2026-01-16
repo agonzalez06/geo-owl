@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 from collections import defaultdict
+from datetime import datetime
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 
 try:
@@ -503,6 +504,11 @@ st.set_page_config(
     layout="wide"
 )
 
+# Initialize dark mode based on time of day (dark after 7pm, before 7am)
+if 'dark_mode' not in st.session_state:
+    hour = datetime.now().hour
+    st.session_state.dark_mode = hour >= 19 or hour < 7
+
 # JavaScript to make Enter key move to next input field
 components.html("""
 <script>
@@ -520,8 +526,8 @@ doc.addEventListener('keydown', function(e) {
 </script>
 """, height=0)
 
-# Temple University red for buttons
-st.markdown("""
+# Temple University red for buttons + dark mode styles
+base_css = """
 <style>
     .stButton > button[kind="primary"] {
         background-color: #9D2235;
@@ -531,16 +537,67 @@ st.markdown("""
         background-color: #7A1A2A;
         border-color: #7A1A2A;
     }
-</style>
-""", unsafe_allow_html=True)
+"""
 
-# Header with logo
-header_col1, header_col2 = st.columns([1, 8])
+dark_mode_css = """
+    /* Dark mode overrides */
+    .stApp {
+        background-color: #1a1a2e;
+        color: #e0e0e0;
+    }
+    .stMarkdown, .stText, p, span, label {
+        color: #e0e0e0 !important;
+    }
+    h1, h2, h3, h4, h5, h6, .stTitle, .stHeader, .stSubheader {
+        color: #ffffff !important;
+    }
+    .stMetric label, .stMetric [data-testid="stMetricValue"] {
+        color: #e0e0e0 !important;
+    }
+    .stExpander {
+        background-color: #16213e;
+        border-color: #0f3460;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #16213e;
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: #e0e0e0;
+    }
+    code, .stCode {
+        background-color: #0f3460 !important;
+        color: #e0e0e0 !important;
+    }
+    .stTextInput input, .stTextArea textarea, .stSelectbox select {
+        background-color: #16213e !important;
+        color: #e0e0e0 !important;
+        border-color: #0f3460 !important;
+    }
+    .stDataFrame {
+        background-color: #16213e;
+    }
+    [data-testid="stMetricDelta"] svg {
+        fill: #e0e0e0;
+    }
+"""
+
+if st.session_state.dark_mode:
+    st.markdown(base_css + dark_mode_css + "</style>", unsafe_allow_html=True)
+else:
+    st.markdown(base_css + "</style>", unsafe_allow_html=True)
+
+# Header with logo and dark mode toggle
+header_col1, header_col2, header_col3 = st.columns([1, 7, 1])
 with header_col1:
     st.image("Gemini_Generated_Image_2hkaog2hkaog2hka.png", use_container_width=True)
 with header_col2:
     st.title("Geographic Placement Optimizer")
     st.markdown("Optimal team assignments based on geography and census.")
+with header_col3:
+    dark_label = "🌙" if st.session_state.dark_mode else "☀️"
+    if st.button(dark_label, key="dark_mode_toggle", help="Toggle dark/light mode"):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
 
 # Geography reference (collapsible)
 with st.expander("Team Geography Reference"):
