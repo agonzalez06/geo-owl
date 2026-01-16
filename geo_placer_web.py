@@ -11,13 +11,89 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 from collections import defaultdict
-from PIL import Image
+from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 
 try:
     import pytesseract
     OCR_AVAILABLE = True
 except ImportError:
     OCR_AVAILABLE = False
+
+
+def preprocess_image_for_ocr(image):
+    """
+    Preprocess image to improve OCR accuracy, especially for camera photos.
+    Handles rotation, moiré patterns, and contrast issues.
+    """
+    # Try to auto-detect and fix orientation using EXIF data
+    try:
+        image = ImageOps.exif_transpose(image)
+    except Exception:
+        pass
+
+    # Convert to grayscale
+    gray = image.convert('L')
+
+    # For camera photos: apply slight blur to reduce moiré patterns
+    blurred = gray.filter(ImageFilter.GaussianBlur(radius=0.5))
+
+    # Enhance contrast
+    enhancer = ImageEnhance.Contrast(blurred)
+    enhanced = enhancer.enhance(1.5)
+
+    # Try to detect if image needs rotation using Tesseract OSD
+    try:
+        osd = pytesseract.image_to_osd(enhanced)
+        rotation_match = re.search(r'Rotate: (\d+)', osd)
+        if rotation_match:
+            rotation = int(rotation_match.group(1))
+            if rotation != 0:
+                # Tesseract reports how much to rotate to fix, so we rotate
+                enhanced = enhanced.rotate(-rotation, expand=True)
+    except Exception:
+        # OSD can fail on some images, try common rotations manually
+        pass
+
+    return enhanced
+
+
+def try_all_rotations(image):
+    """
+    Try OCR on all 4 rotations and return the best result.
+    Useful when OSD detection fails.
+    """
+    best_pairs = []
+    best_text = ""
+    best_rotation = 0
+    best_psm = 6
+
+    gray = image.convert('L')
+
+    # Apply preprocessing
+    blurred = gray.filter(ImageFilter.GaussianBlur(radius=0.5))
+    enhancer = ImageEnhance.Contrast(blurred)
+    enhanced = enhancer.enhance(1.5)
+
+    for rotation in [0, 90, 180, 270]:
+        if rotation == 0:
+            rotated = enhanced
+        else:
+            rotated = enhanced.rotate(-rotation, expand=True)
+
+        for psm in [6, 4, 3, 11]:
+            config = f'--psm {psm}'
+            try:
+                raw_text = pytesseract.image_to_string(rotated, config=config)
+                pairs = extract_from_ocr(raw_text)
+                if len(pairs) > len(best_pairs):
+                    best_pairs = pairs
+                    best_text = raw_text
+                    best_rotation = rotation
+                    best_psm = psm
+            except Exception:
+                continue
+
+    return best_pairs, best_text, best_rotation, best_psm
 
 # =============================================================================
 # GEOGRAPHIC MAPPINGS
@@ -785,26 +861,22 @@ with tab_shuffle:
 
                 for uploaded_file in uploaded_files:
                     image = Image.open(uploaded_file)
-                    gray_image = image.convert('L')
 
-                    best_pairs = []
-                    best_text = ""
-                    best_psm = 6
+                    # Try EXIF transpose first (handles phone photo orientation)
+                    try:
+                        image = ImageOps.exif_transpose(image)
+                    except Exception:
+                        pass
 
-                    for psm in [6, 4, 3, 11]:
-                        config = f'--psm {psm}'
-                        raw_text = pytesseract.image_to_string(gray_image, config=config)
-                        pairs = extract_from_ocr(raw_text)
-                        if len(pairs) > len(best_pairs):
-                            best_pairs = pairs
-                            best_text = raw_text
-                            best_psm = psm
+                    # Use rotation-aware OCR that tries all orientations
+                    best_pairs, best_text, best_rotation, best_psm = try_all_rotations(image)
 
                     with st.expander(f"Raw OCR from {uploaded_file.name}"):
                         st.code(best_text)
                         rooms_found = re.findall(r'\b(\d{3,4}[A-Z]?)\b', best_text, re.IGNORECASE)
                         teams_found = re.findall(r'Med\s*(\d{1,2})', best_text, re.IGNORECASE)
-                        st.caption(f"Debug: {len(rooms_found)} rooms, {len(teams_found)} teams (PSM {best_psm})")
+                        rotation_info = f", rotated {best_rotation}°" if best_rotation != 0 else ""
+                        st.caption(f"Debug: {len(rooms_found)} rooms, {len(teams_found)} teams (PSM {best_psm}{rotation_info})")
 
                     all_pairs.extend(best_pairs)
                     st.info(f"Found {len(best_pairs)} room-team pairs in {uploaded_file.name}")
