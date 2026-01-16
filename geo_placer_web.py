@@ -11,9 +11,16 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 from collections import defaultdict
+from PIL import Image
+
+try:
+    import pytesseract
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
 
 # =============================================================================
-# GEOGRAPHIC MAPPINGS (same as CLI version)
+# GEOGRAPHIC MAPPINGS
 # =============================================================================
 
 FLOOR_TO_TEAMS = {
@@ -35,11 +42,19 @@ TEAM_FLOORS = {
     13: ['Overflow'], 14: ['Overflow'], 15: ['Overflow'],
 }
 
+TEAM_FLOORS_STR = {
+    1: "3E/3W/IMCU", 2: "3E/3W/IMCU", 3: "3E/3W/IMCU",
+    4: "4E/4W", 5: "5E/5W", 6: "6E/6W/Boyer",
+    7: "7E/7W", 8: "8E/8W", 9: "7E/7W",
+    10: "5E/5W", 11: "4E/4W", 12: "6E/6W/Boyer",
+    13: "Overflow", 14: "Overflow", 15: "Overflow",
+}
+
 ALL_TEAMS = list(range(1, 16))
 OVERFLOW_TEAMS = [13, 14, 15]
 IMCU_TEAMS = [1, 2, 3]
-IMCU_TARGET = 9   # Prefer to keep IMCU at 9 to leave room for 1 more
-IMCU_CAP = 10     # Hard cap for IMCU teams
+IMCU_TARGET = 9
+IMCU_CAP = 10
 SOFT_CAP = 14
 MAX_NEW_BEFORE_SPREAD = 3
 MAX_CENSUS_GAP = 4
@@ -50,7 +65,7 @@ class Patient:
     identifier: str
     floor: str
     raw_location: str
-    admitted_by: str = ""  # Overnight doctor who admitted
+    admitted_by: str = ""
 
 
 @dataclass
@@ -61,8 +76,15 @@ class Assignment:
     reason: str
 
 
+@dataclass
+class ExistingPatient:
+    room: str
+    current_team: int
+    floor: str
+
+
 # =============================================================================
-# FLOOR PARSING (same as CLI version)
+# FLOOR PARSING
 # =============================================================================
 
 def normalize_floor(location: str) -> Optional[str]:
@@ -72,10 +94,16 @@ def normalize_floor(location: str) -> Optional[str]:
         return 'IMCU'
     if 'OVERNIGHT' in original or 'ONR' in original or 'RECOVERY' in original:
         return 'BOYER'
+    if original.startswith('RZ'):
+        return 'BOYER'
+    if original.startswith('Y'):
+        return 'BOYER'
     if any(x in original for x in ['ED', 'EMERGENCY', 'ER ']):
         return None
     if 'BOYER' in original:
         return 'BOYER'
+    if original == 'MAIN':
+        return None
 
     location = re.sub(r'[A-Z]$', '', original)
 
@@ -129,7 +157,7 @@ def get_geographic_teams(floor: str) -> list[int]:
 
 
 # =============================================================================
-# PLACEMENT ALGORITHM (same as CLI version)
+# OVERNIGHT PLACEMENT ALGORITHM
 # =============================================================================
 
 def optimize_placements(
@@ -179,11 +207,10 @@ def optimize_placements(
                 valid_geo_teams.append(t)
 
             if valid_geo_teams:
-                # Score teams: prefer lower census, penalize IMCU at/over target (9)
                 def geo_score(t):
                     c = census.get(t, 0)
                     if t in IMCU_TEAMS and c >= IMCU_TARGET:
-                        return c + 50  # Soft penalty to prefer other options
+                        return c + 50
                     return c
 
                 best_geo_team = min(valid_geo_teams, key=geo_score)
@@ -275,6 +302,103 @@ def optimize_placements(
 
 
 # =============================================================================
+# MONDAY SHUFFLE FUNCTIONS
+# =============================================================================
+
+def analyze_patients(
+    patients: list[ExistingPatient],
+    closed_teams: set[int] = None
+) -> tuple[list[tuple[ExistingPatient, list[int]]], list[ExistingPatient]]:
+    closed_teams = closed_teams or set()
+    wrong_team = []
+    ok_team = []
+
+    for patient in patients:
+        geo_teams = get_geographic_teams(patient.floor) if patient.floor else []
+        acceptable_teams = [t for t in geo_teams if t not in closed_teams]
+
+        if patient.current_team in acceptable_teams:
+            ok_team.append(patient)
+        elif acceptable_teams:
+            wrong_team.append((patient, acceptable_teams))
+        else:
+            wrong_team.append((patient, []))
+
+    return wrong_team, ok_team
+
+
+def extract_from_ocr(text: str) -> list[tuple[str, int]]:
+    pairs = []
+    seen_rooms = set()
+    room_pattern = r'\b(\d{3}[A-Z]?|[A-Z]{2,4}\d{0,2}[A-Z]?|\d{4}[A-Z]?)\b'
+
+    for line in text.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if 'Primary' in line or 'Bed' in line and 'Team' in line:
+            continue
+
+        room_match = re.search(room_pattern, line, re.IGNORECASE)
+        team_match = re.search(r'Med\s*(\d{1,2})', line, re.IGNORECASE)
+
+        if room_match and team_match:
+            room = room_match.group(1).upper()
+            team = int(team_match.group(1))
+            if room in ('BED', 'PRIMARY', 'TEAM'):
+                continue
+            if room not in seen_rooms and 1 <= team <= 15:
+                seen_rooms.add(room)
+                pairs.append((room, team))
+
+    all_rooms = re.findall(r'\b(\d{3,4}[A-Z]?)\b', text, re.IGNORECASE)
+    special_rooms = re.findall(r'\b([A-Z]{2,4}\d{1,2})\b', text)
+    special_rooms += re.findall(r'\b(MAIN|ICU\d*|IMCU\d*)\b', text, re.IGNORECASE)
+
+    unique_rooms = []
+    for r in all_rooms + special_rooms:
+        r_upper = r.upper()
+        if r_upper not in unique_rooms and r_upper not in ('BED', 'PRIMARY', 'TEAM', 'MED'):
+            unique_rooms.append(r_upper)
+
+    all_teams = re.findall(r'Med\s*(\d{1,2})', text, re.IGNORECASE)
+    all_teams = [int(t) for t in all_teams if 1 <= int(t) <= 15]
+
+    if len(pairs) >= 5 and abs(len(pairs) - len(all_teams)) <= 3:
+        return pairs
+
+    if len(unique_rooms) > 0 and len(all_teams) > 0:
+        min_len = min(len(unique_rooms), len(all_teams))
+        for room, team in zip(unique_rooms[:min_len], all_teams[:min_len]):
+            if room not in seen_rooms:
+                seen_rooms.add(room)
+                pairs.append((room, team))
+
+    return pairs
+
+
+def fix_ocr_room(room: str) -> str:
+    room = room.upper()
+    garbage = ['MED', 'BED', 'TEAM', 'PRIMARY', 'POSE', 'TAA', 'ATTA']
+    if room in garbage:
+        return None
+
+    if len(room) == 4 and room.isdigit():
+        last = room[-1]
+        if last == '4':
+            room = room[:-1] + 'A'
+        elif last == '8':
+            room = room[:-1] + 'B'
+
+    if room.startswith('T') and len(room) >= 3:
+        fixed = '7' + room[1:]
+        if re.match(r'^\d{3}[A-Z]?$', fixed):
+            room = fixed
+
+    return room
+
+
+# =============================================================================
 # STREAMLIT UI
 # =============================================================================
 
@@ -283,7 +407,6 @@ st.set_page_config(
     page_icon="Gemini_Generated_Image_2hkaog2hkaog2hka.png",
     layout="wide"
 )
-
 
 # JavaScript to make Enter key move to next input field
 components.html("""
@@ -343,282 +466,582 @@ Room convention: X01-X20 = West, X30-X50 = East
 """
     st.code(ref_text, language=None)
 
-# Create 5 columns: Census + 4 Doctors side by side
-census_col, doc1_col, doc2_col, doc3_col, doc4_col = st.columns([1, 1, 1, 1, 1])
+# Main tabs
+tab_nights, tab_shuffle = st.tabs(["Nights", "Monday Shuffle"])
 
-# Column 1: Team Census (compact layout)
-with census_col:
-    st.subheader("Census")
-    st.caption("X = closed")
+# =============================================================================
+# TAB 1: NIGHTS (Overnight Placement)
+# =============================================================================
 
-    census = {}
-    closed_teams = set()
+with tab_nights:
+    # Create 5 columns: Census + 4 Doctors side by side
+    census_col, doc1_col, doc2_col, doc3_col, doc4_col = st.columns([1, 1, 1, 1, 1])
 
-    for team in ALL_TEAMS:
-        label_col, input_col = st.columns([1, 3])
-        with label_col:
-            imcu = "*" if team in IMCU_TEAMS else ""
-            st.markdown(f"<div style='padding-top:8px; text-align:right'>Med {team}{imcu}</div>", unsafe_allow_html=True)
-        with input_col:
-            value = st.text_input(
-                f"Med {team}",
-                key=f"census_{team}",
+    # Column 1: Team Census (compact layout)
+    with census_col:
+        st.subheader("Census")
+        st.caption("X = closed")
+
+        nights_census = {}
+        nights_closed_teams = set()
+
+        for team in ALL_TEAMS:
+            label_col, input_col = st.columns([1, 3])
+            with label_col:
+                imcu = "*" if team in IMCU_TEAMS else ""
+                st.markdown(f"<div style='padding-top:8px; text-align:right'>Med {team}{imcu}</div>", unsafe_allow_html=True)
+            with input_col:
+                value = st.text_input(
+                    f"Med {team}",
+                    key=f"nights_census_{team}",
+                    label_visibility="collapsed"
+                )
+
+            if value:
+                value_upper = value.strip().upper()
+                if value_upper in ('X', 'NA', 'CLOSED', 'N/A', '-'):
+                    nights_closed_teams.add(team)
+                    nights_census[team] = 0
+                else:
+                    try:
+                        nights_census[team] = int(value)
+                    except ValueError:
+                        nights_census[team] = 0
+            else:
+                nights_census[team] = 0
+
+    # Columns 2-5: Overnight Doctors (Amion naming)
+    doc_cols = [doc1_col, doc2_col, doc3_col, doc4_col]
+    doc_labels = [
+        ("Med Q", "1-3"),
+        ("Med S", "4-6"),
+        ("Med Y", "7-9"),
+        ("Med Z", "10-13"),
+    ]
+    doctor_names = []
+    doctor_patients = []
+
+    for i, (doc_col, (code, teams)) in enumerate(zip(doc_cols, doc_labels), 1):
+        with doc_col:
+            st.subheader(f"{code} ({teams})")
+            name = st.text_input(
+                "Name",
+                key=f"nights_doc_{i}",
+                placeholder="Name",
                 label_visibility="collapsed"
             )
+            doctor_names.append(name.strip() if name else code)
 
-        if value:
-            value_upper = value.strip().upper()
-            if value_upper in ('X', 'NA', 'CLOSED', 'N/A', '-'):
-                closed_teams.add(team)
-                census[team] = 0
-            else:
-                try:
-                    census[team] = int(value)
-                except ValueError:
-                    census[team] = 0
+            patients = st.text_area(
+                "Patients",
+                key=f"nights_patients_{i}",
+                height=400,
+                placeholder="310A\n545\n634* (append * for IMCU)\n..." if i == 1 else "312\n545\n7E\n...",
+                label_visibility="collapsed"
+            )
+            doctor_patients.append(patients)
+
+    # Show closed teams
+    if nights_closed_teams:
+        st.info(f"**Closed teams:** {', '.join(f'Med {t}' for t in sorted(nights_closed_teams))}")
+
+    # Process button
+    if st.button("Optimize Placements", type="primary", use_container_width=True, key="nights_optimize"):
+        # Parse patients from all 4 doctor columns
+        patients = []
+        seen = set()
+        duplicates = 0
+        pt_count = 1
+
+        for doc_idx, (doc_name, doc_patients_text) in enumerate(zip(doctor_names, doctor_patients)):
+            if not doc_patients_text:
+                continue
+
+            for line in doc_patients_text.strip().split('\n'):
+                location = line.strip()
+                if not location:
+                    continue
+
+                is_imcu_override = False
+                if location.endswith('*'):
+                    is_imcu_override = True
+                    location = location[:-1]
+
+                location_key = location.upper()
+                if location_key in seen:
+                    duplicates += 1
+                    continue
+                seen.add(location_key)
+
+                if is_imcu_override:
+                    floor = 'IMCU'
+                else:
+                    floor = normalize_floor(location)
+
+                patients.append(Patient(f"Pt{pt_count}", floor, location, admitted_by=doc_name))
+                pt_count += 1
+
+        if not patients:
+            st.warning("No patients entered. Please enter patient locations above.")
         else:
-            census[team] = 0
+            assignments = optimize_placements(patients, nights_census, nights_closed_teams)
 
-# Columns 2-5: Overnight Doctors (Amion naming)
-doc_cols = [doc1_col, doc2_col, doc3_col, doc4_col]
-doc_labels = [
-    ("Med Q", "1-3"),
-    ("Med S", "4-6"),
-    ("Med Y", "7-9"),
-    ("Med Z", "10-13"),
-]
-doctor_names = []
-doctor_patients = []
-
-for i, (doc_col, (code, teams)) in enumerate(zip(doc_cols, doc_labels), 1):
-    with doc_col:
-        st.subheader(f"{code} ({teams})")
-        name = st.text_input(
-            "Name",
-            key=f"doc_{i}",
-            placeholder="Name",
-            label_visibility="collapsed"
-        )
-        doctor_names.append(name.strip() if name else code)
-
-        patients = st.text_area(
-            "Patients",
-            key=f"patients_{i}",
-            height=400,
-            placeholder="310A\n545\n634* (append * for IMCU)\n..." if i == 1 else "312\n545\n7E\n...",
-            label_visibility="collapsed"
-        )
-        doctor_patients.append(patients)
-
-# Show closed teams
-if closed_teams:
-    st.info(f"**Closed teams:** {', '.join(f'Med {t}' for t in sorted(closed_teams))}")
-
-# Process button
-if st.button("Optimize Placements", type="primary", use_container_width=True):
-    # Parse patients from all 4 doctor columns
-    patients = []
-    seen = set()
-    duplicates = 0
-    pt_count = 1
-
-    for doc_idx, (doc_name, doc_patients_text) in enumerate(zip(doctor_names, doctor_patients)):
-        if not doc_patients_text:
-            continue
-
-        for line in doc_patients_text.strip().split('\n'):
-            location = line.strip()
-            if not location:
-                continue
-
-            # Check for IMCU asterisk suffix
-            is_imcu_override = False
-            if location.endswith('*'):
-                is_imcu_override = True
-                location = location[:-1]  # Remove the asterisk
-
-            location_key = location.upper()
-            if location_key in seen:
-                duplicates += 1
-                continue
-            seen.add(location_key)
-
-            # Force IMCU floor if asterisk was present, otherwise normalize
-            if is_imcu_override:
-                floor = 'IMCU'
-            else:
-                floor = normalize_floor(location)
-
-            patients.append(Patient(f"Pt{pt_count}", floor, location, admitted_by=doc_name))
-            pt_count += 1
-
-    if not patients:
-        st.warning("No patients entered. Please enter patient locations above.")
-    else:
-        # Run optimization
-        assignments = optimize_placements(patients, census, closed_teams)
-
-        # Calculate final census
-        final_census = census.copy()
-        for a in assignments:
-            final_census[a.team] = final_census.get(a.team, 0) + 1
-
-        # Show results with anchor for scrolling
-        st.markdown("---")
-        st.markdown("<div id='results-section'></div>", unsafe_allow_html=True)
-        st.subheader("Results")
-
-        # Auto-scroll to results
-        components.html("""
-            <script>
-                window.parent.document.getElementById('results-section').scrollIntoView({behavior: 'smooth'});
-            </script>
-        """, height=0)
-
-        if duplicates > 0:
-            st.warning(f"Skipped {duplicates} duplicate(s)")
-
-        geo_count = sum(1 for a in assignments if a.is_geographic)
-        total = len(assignments)
-
-        # Summary metrics
-        metric_cols = st.columns(4)
-        metric_cols[0].metric("Total Patients", total)
-        metric_cols[1].metric("Geographic", f"{geo_count} ({100*geo_count//total if total else 0}%)")
-        metric_cols[2].metric("Non-Geographic", total - geo_count)
-        metric_cols[3].metric("Teams Used", len(set(a.team for a in assignments)))
-
-        # Results in 4 columns
-        res_col1, res_col2, res_col3, res_col4 = st.columns(4)
-
-        # Column 1: Census Summary
-        with res_col1:
-            st.markdown("### Census Summary")
-
-            summary_text = "Team   Start +New =Final\n"
-            summary_text += "-" * 26 + "\n"
-
-            for team in ALL_TEAMS:
-                if team in closed_teams:
-                    summary_text += f"Med {team:2d}   -- CLOSED\n"
-                    continue
-
-                start = census.get(team, 0)
-                final = final_census.get(team, 0)
-                new = final - start
-
-                warning = ""
-                if team in IMCU_TEAMS and final >= IMCU_CAP:
-                    warning = " CAP"
-                elif team not in IMCU_TEAMS and final >= SOFT_CAP:
-                    warning = " HIGH"
-
-                imcu = "*" if team in IMCU_TEAMS else " "
-                summary_text += f"Med {team:2d}{imcu} {start:2d}  +{new:2d}  ={final:2d}{warning}\n"
-
-            summary_text += "\n* = IMCU (cap: 10)"
-            st.code(summary_text, language=None)
-
-        # Column 2: Assignment List
-        with res_col2:
-            st.markdown("### Assignment List")
-
-            # Sort by room number/location
-            sorted_assignments = sorted(assignments, key=lambda a: a.patient.raw_location)
-            assignment_text = ""
-            for a in sorted_assignments:
-                assignment_text += f"{a.patient.raw_location:8} → Med {a.team:2d} ({a.patient.admitted_by})\n"
-
-            st.code(assignment_text, language=None)
-
-        # Column 3: By Team (monospace)
-        with res_col3:
-            st.markdown("### By Team")
-
-            by_team = defaultdict(list)
+            final_census = nights_census.copy()
             for a in assignments:
-                by_team[a.team].append(a)
+                final_census[a.team] = final_census.get(a.team, 0) + 1
 
-            by_team_text = ""
-            for team in ALL_TEAMS:
-                if team in closed_teams:
-                    continue
+            st.markdown("---")
+            st.markdown("<div id='results-section'></div>", unsafe_allow_html=True)
+            st.subheader("Results")
 
-                team_assignments = by_team[team]
-                if not team_assignments:
-                    continue
-
-                start = census.get(team, 0)
-                final = final_census.get(team, 0)
-                new_count = len(team_assignments)
-
-                imcu = "*" if team in IMCU_TEAMS else ""
-                by_team_text += f"Med {team}{imcu} ({start}→{final})\n"
-
-                for a in team_assignments:
-                    by_team_text += f"  {a.patient.raw_location} ({a.patient.admitted_by})\n"
-
-                by_team_text += "\n"
-
-            st.code(by_team_text, language=None)
-
-        # Column 4: EPIC Secure Chat Message
-        with res_col4:
-            st.markdown("### EPIC Message")
-
-            by_team = defaultdict(list)
-            for a in assignments:
-                by_team[a.team].append((a.patient.raw_location, a.patient.admitted_by))
-
-            epic_lines = ["Good Morning! Here are today's redis:"]
-            for team in sorted(by_team.keys()):
-                patient_strs = [f"{room} ({doc})" for room, doc in by_team[team]]
-                epic_lines.append(f"Med {team}: {', '.join(patient_strs)}")
-
-            epic_message = "\n".join(epic_lines)
-
-            # Calculate height based on lines (approx 20px per line + padding)
-            line_count = len(epic_lines)
-            text_height = max(150, line_count * 22 + 50)
-
-            # Display with copy button using HTML/JS
-            escaped_message = epic_message.replace('`', '\\`').replace('$', '\\$')
-            components.html(f"""
-                <style>
-                    .epic-container {{
-                        font-family: monospace;
-                        background-color: #f0f2f6;
-                        border-radius: 5px;
-                        padding: 10px;
-                        white-space: pre-wrap;
-                        font-size: 14px;
-                        line-height: 1.4;
-                    }}
-                    .copy-btn {{
-                        background-color: #9D2235;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 5px;
-                        cursor: pointer;
-                        margin-bottom: 10px;
-                        font-weight: bold;
-                    }}
-                    .copy-btn:hover {{
-                        background-color: #7A1A2A;
-                    }}
-                </style>
-                <button class="copy-btn" onclick="copyToClipboard()">Copy Message</button>
-                <div class="epic-container" id="epicMsg">{epic_message}</div>
+            components.html("""
                 <script>
-                    function copyToClipboard() {{
-                        const text = document.getElementById('epicMsg').innerText;
-                        navigator.clipboard.writeText(text).then(() => {{
-                            const btn = document.querySelector('.copy-btn');
-                            btn.innerText = 'Copied!';
-                            setTimeout(() => {{ btn.innerText = 'Copy Message'; }}, 2000);
-                        }});
-                    }}
+                    window.parent.document.getElementById('results-section').scrollIntoView({behavior: 'smooth'});
                 </script>
-            """, height=text_height + 60)
+            """, height=0)
 
+            if duplicates > 0:
+                st.warning(f"Skipped {duplicates} duplicate(s)")
+
+            geo_count = sum(1 for a in assignments if a.is_geographic)
+            total = len(assignments)
+
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("Total Patients", total)
+            metric_cols[1].metric("Geographic", f"{geo_count} ({100*geo_count//total if total else 0}%)")
+            metric_cols[2].metric("Non-Geographic", total - geo_count)
+            metric_cols[3].metric("Teams Used", len(set(a.team for a in assignments)))
+
+            res_col1, res_col2, res_col3, res_col4 = st.columns(4)
+
+            with res_col1:
+                st.markdown("### Census Summary")
+                summary_text = "Team   Start +New =Final\n"
+                summary_text += "-" * 26 + "\n"
+
+                for team in ALL_TEAMS:
+                    if team in nights_closed_teams:
+                        summary_text += f"Med {team:2d}   -- CLOSED\n"
+                        continue
+
+                    start = nights_census.get(team, 0)
+                    final = final_census.get(team, 0)
+                    new = final - start
+
+                    warning = ""
+                    if team in IMCU_TEAMS and final >= IMCU_CAP:
+                        warning = " CAP"
+                    elif team not in IMCU_TEAMS and final >= SOFT_CAP:
+                        warning = " HIGH"
+
+                    imcu = "*" if team in IMCU_TEAMS else " "
+                    summary_text += f"Med {team:2d}{imcu} {start:2d}  +{new:2d}  ={final:2d}{warning}\n"
+
+                summary_text += "\n* = IMCU (cap: 10)"
+                st.code(summary_text, language=None)
+
+            with res_col2:
+                st.markdown("### Assignment List")
+                sorted_assignments = sorted(assignments, key=lambda a: a.patient.raw_location)
+                assignment_text = ""
+                for a in sorted_assignments:
+                    assignment_text += f"{a.patient.raw_location:8} → Med {a.team:2d} ({a.patient.admitted_by})\n"
+                st.code(assignment_text, language=None)
+
+            with res_col3:
+                st.markdown("### By Team")
+                by_team = defaultdict(list)
+                for a in assignments:
+                    by_team[a.team].append(a)
+
+                by_team_text = ""
+                for team in ALL_TEAMS:
+                    if team in nights_closed_teams:
+                        continue
+                    team_assignments = by_team[team]
+                    if not team_assignments:
+                        continue
+
+                    start = nights_census.get(team, 0)
+                    final = final_census.get(team, 0)
+
+                    imcu = "*" if team in IMCU_TEAMS else ""
+                    by_team_text += f"Med {team}{imcu} ({start}→{final})\n"
+
+                    for a in team_assignments:
+                        by_team_text += f"  {a.patient.raw_location} ({a.patient.admitted_by})\n"
+                    by_team_text += "\n"
+
+                st.code(by_team_text, language=None)
+
+            with res_col4:
+                st.markdown("### EPIC Message")
+                by_team = defaultdict(list)
+                for a in assignments:
+                    by_team[a.team].append((a.patient.raw_location, a.patient.admitted_by))
+
+                epic_lines = ["Good Morning! Here are today's redis:"]
+                for team in sorted(by_team.keys()):
+                    patient_strs = [f"{room} ({doc})" for room, doc in by_team[team]]
+                    epic_lines.append(f"Med {team}: {', '.join(patient_strs)}")
+
+                epic_message = "\n".join(epic_lines)
+                line_count = len(epic_lines)
+                text_height = max(150, line_count * 22 + 50)
+
+                components.html(f"""
+                    <style>
+                        .epic-container {{
+                            font-family: monospace;
+                            background-color: #f0f2f6;
+                            border-radius: 5px;
+                            padding: 10px;
+                            white-space: pre-wrap;
+                            font-size: 14px;
+                            line-height: 1.4;
+                        }}
+                        .copy-btn {{
+                            background-color: #9D2235;
+                            color: white;
+                            border: none;
+                            padding: 8px 16px;
+                            border-radius: 5px;
+                            cursor: pointer;
+                            margin-bottom: 10px;
+                            font-weight: bold;
+                        }}
+                        .copy-btn:hover {{
+                            background-color: #7A1A2A;
+                        }}
+                    </style>
+                    <button class="copy-btn" onclick="copyToClipboard()">Copy Message</button>
+                    <div class="epic-container" id="epicMsg">{epic_message}</div>
+                    <script>
+                        function copyToClipboard() {{
+                            const text = document.getElementById('epicMsg').innerText;
+                            navigator.clipboard.writeText(text).then(() => {{
+                                const btn = document.querySelector('.copy-btn');
+                                btn.innerText = 'Copied!';
+                                setTimeout(() => {{ btn.innerText = 'Copy Message'; }}, 2000);
+                            }});
+                        }}
+                    </script>
+                """, height=text_height + 60)
+
+
+# =============================================================================
+# TAB 2: MONDAY SHUFFLE
+# =============================================================================
+
+with tab_shuffle:
+    st.markdown("Identify patients on wrong teams for manual reassignment in Epic.")
+
+    # Closed teams input
+    shuffle_closed_input = st.text_input(
+        "Closed teams (comma-separated, e.g., '14, 15')",
+        value="14, 15",
+        help="Enter team numbers that are closed",
+        key="shuffle_closed"
+    )
+    shuffle_closed_teams = set()
+    if shuffle_closed_input:
+        for t in shuffle_closed_input.split(','):
+            t = t.strip()
+            if t.isdigit():
+                shuffle_closed_teams.add(int(t))
+
+    st.markdown("---")
+
+    # Input method tabs
+    ocr_tab, manual_tab = st.tabs(["Screenshot OCR", "Manual Entry"])
+
+    # Session state for shuffle
+    if 'shuffle_patients' not in st.session_state:
+        st.session_state.shuffle_patients = []
+    if 'shuffle_uploader_key' not in st.session_state:
+        st.session_state.shuffle_uploader_key = 0
+
+    with ocr_tab:
+        st.markdown("""
+        **Upload Epic screenshots** showing room numbers and team assignments.
+
+        For best results, crop screenshots to show just the Room and Team columns.
+        """)
+
+        if not OCR_AVAILABLE:
+            st.error("OCR (pytesseract) not available. Use Manual Entry tab instead.")
+        else:
+            uploaded_files = st.file_uploader(
+                "Upload Epic screenshots",
+                type=['png', 'jpg', 'jpeg'],
+                accept_multiple_files=True,
+                key=f"shuffle_uploader_{st.session_state.shuffle_uploader_key}"
+            )
+
+            process_btn = st.button("Process Screenshots", type="primary", key="shuffle_ocr_btn", disabled=not uploaded_files)
+
+            if process_btn:
+                all_pairs = []
+
+                for uploaded_file in uploaded_files:
+                    image = Image.open(uploaded_file)
+                    gray_image = image.convert('L')
+
+                    best_pairs = []
+                    best_text = ""
+                    best_psm = 6
+
+                    for psm in [6, 4, 3, 11]:
+                        config = f'--psm {psm}'
+                        raw_text = pytesseract.image_to_string(gray_image, config=config)
+                        pairs = extract_from_ocr(raw_text)
+                        if len(pairs) > len(best_pairs):
+                            best_pairs = pairs
+                            best_text = raw_text
+                            best_psm = psm
+
+                    with st.expander(f"Raw OCR from {uploaded_file.name}"):
+                        st.code(best_text)
+                        rooms_found = re.findall(r'\b(\d{3,4}[A-Z]?)\b', best_text, re.IGNORECASE)
+                        teams_found = re.findall(r'Med\s*(\d{1,2})', best_text, re.IGNORECASE)
+                        st.caption(f"Debug: {len(rooms_found)} rooms, {len(teams_found)} teams (PSM {best_psm})")
+
+                    all_pairs.extend(best_pairs)
+                    st.info(f"Found {len(best_pairs)} room-team pairs in {uploaded_file.name}")
+
+                seen_rooms = set()
+                st.session_state.shuffle_patients = []
+                for room, team in all_pairs:
+                    room = fix_ocr_room(room)
+                    if room is None:
+                        continue
+                    if room not in seen_rooms:
+                        seen_rooms.add(room)
+                        floor = normalize_floor(room)
+                        st.session_state.shuffle_patients.append(
+                            ExistingPatient(room=room, current_team=team, floor=floor)
+                        )
+
+                if st.session_state.shuffle_patients:
+                    st.success(f"Total: {len(st.session_state.shuffle_patients)} unique patients extracted")
+
+                    with st.expander("Extracted data (verify this is correct)"):
+                        extracted_text = ""
+                        for p in sorted(st.session_state.shuffle_patients, key=lambda x: x.room):
+                            extracted_text += f"{p.room} Med {p.current_team}\n"
+                        st.code(extracted_text)
+                else:
+                    st.warning("No room-team pairs found. Check the raw OCR output above.")
+
+    with manual_tab:
+        st.markdown("""
+        **Enter room and current team** - one per line.
+
+        Format: `Room Team` (e.g., `304A 1` or `304A Med 1`)
+        """)
+
+        paste_input = st.text_area(
+            "Room and Team (one per line)",
+            height=400,
+            placeholder="304A 1\n343B 5\n534 Med 10\n435A 7\n...",
+            key="shuffle_manual_input"
+        )
+
+        if st.button("Analyze Teams", type="primary", key="shuffle_manual_btn"):
+            if not paste_input:
+                st.warning("Please enter room and team data first.")
+            else:
+                seen_rooms = set()
+                parse_errors = []
+                st.session_state.shuffle_patients = []
+
+                for line in paste_input.strip().split('\n'):
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    room_match = re.search(r'\b(\d{3}[A-Z]?)\b', line, re.IGNORECASE)
+                    if not room_match:
+                        parse_errors.append(f"No room found: {line}")
+                        continue
+
+                    room = room_match.group(1).upper()
+
+                    team_match = re.search(r'(?:Med\s*)?(\d{1,2})\b', line[room_match.end():], re.IGNORECASE)
+                    if not team_match:
+                        parse_errors.append(f"No team found: {line}")
+                        continue
+
+                    team_num = int(team_match.group(1))
+
+                    if team_num < 1 or team_num > 15:
+                        parse_errors.append(f"Invalid team {team_num}: {line}")
+                        continue
+
+                    if room in seen_rooms:
+                        continue
+                    seen_rooms.add(room)
+
+                    floor = normalize_floor(room)
+                    st.session_state.shuffle_patients.append(
+                        ExistingPatient(room=room, current_team=team_num, floor=floor)
+                    )
+
+                if parse_errors:
+                    with st.expander(f"Parse warnings ({len(parse_errors)})"):
+                        for err in parse_errors:
+                            st.warning(err)
+
+                st.success(f"Parsed {len(st.session_state.shuffle_patients)} patients")
+
+    # Process results if we have patients
+    if st.session_state.shuffle_patients:
+        all_patients = st.session_state.shuffle_patients
+        wrong_team, ok_team = analyze_patients(all_patients, shuffle_closed_teams)
+
+        st.markdown("---")
+
+        header_col1, header_col2, header_spacer = st.columns([1.2, 0.8, 8], gap="small")
+        with header_col1:
+            st.subheader("Analysis")
+        with header_col2:
+            if st.button("Clear", key="shuffle_clear_btn"):
+                st.session_state.shuffle_patients = []
+                st.session_state.shuffle_uploader_key += 1
+                st.rerun()
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Patients", len(all_patients))
+        col2.metric("Need Reassignment", len(wrong_team))
+        col3.metric("Team Correct", len(ok_team))
+
+        team_census = defaultdict(int)
+        for patient in all_patients:
+            team_census[patient.current_team] += 1
+
+        SHUFFLE_IMCU_TARGET = 9
+        OVERFLOW_THRESHOLD = 10
+
+        projected_census = dict(team_census)
+        recommendations = []
+
+        available_overflow = [t for t in OVERFLOW_TEAMS if t not in shuffle_closed_teams]
+
+        for patient, acceptable in sorted(wrong_team, key=lambda x: x[0].room):
+            if acceptable:
+                def team_score(t):
+                    census = projected_census.get(t, 0)
+                    if t in IMCU_TEAMS and census >= SHUFFLE_IMCU_TARGET:
+                        return census + 100
+                    return census
+
+                min_geo_census = min(projected_census.get(t, 0) for t in acceptable)
+                if min_geo_census >= OVERFLOW_THRESHOLD and available_overflow:
+                    options = acceptable + available_overflow
+                else:
+                    options = acceptable
+
+                best_team = min(options, key=team_score)
+                projected_census[best_team] = projected_census.get(best_team, 0) + 1
+                projected_census[patient.current_team] = projected_census.get(patient.current_team, 0) - 1
+                recommendations.append((patient, best_team))
+            else:
+                if available_overflow:
+                    best_team = min(available_overflow, key=lambda t: projected_census.get(t, 0))
+                    projected_census[best_team] = projected_census.get(best_team, 0) + 1
+                    projected_census[patient.current_team] = projected_census.get(patient.current_team, 0) - 1
+                    recommendations.append((patient, best_team))
+                else:
+                    recommendations.append((patient, None))
+
+        res_col1, res_col2, res_col3 = st.columns(3)
+
+        with res_col1:
+            st.markdown("### Census")
+            census_text = "Team  Now  +/-  =New\n"
+            census_text += "-" * 22 + "\n"
+            for team in ALL_TEAMS:
+                if team in shuffle_closed_teams:
+                    census_text += f"Med {team:2d}   CLOSED\n"
+                else:
+                    current = team_census.get(team, 0)
+                    projected = projected_census.get(team, 0)
+                    change = projected - current
+                    imcu = "*" if team in IMCU_TEAMS else " "
+                    if change > 0:
+                        census_text += f"Med {team:2d}{imcu} {current:2d}  +{change:2d}  ={projected:2d}\n"
+                    elif change < 0:
+                        census_text += f"Med {team:2d}{imcu} {current:2d}  {change:3d}  ={projected:2d}\n"
+                    else:
+                        census_text += f"Med {team:2d}{imcu} {current:2d}    0  ={projected:2d}\n"
+            census_text += "\n* = IMCU"
+            st.code(census_text, language=None)
+
+        with res_col2:
+            st.markdown("### Needs Reassignment")
+            if recommendations:
+                wrong_text = ""
+                for patient, rec_team in recommendations:
+                    room_padded = f"{patient.room:5}"
+                    current_padded = f"Med {patient.current_team:2d}"
+                    if rec_team:
+                        new_padded = f"Med {rec_team:2d}"
+                        wrong_text += f"{room_padded} {current_padded} -> {new_padded}\n"
+                    else:
+                        wrong_text += f"{room_padded} {current_padded} -> ?\n"
+                st.code(wrong_text, language=None)
+            else:
+                st.info("All patients on correct teams!")
+
+        with res_col3:
+            st.markdown("### Team Correct")
+            if ok_team:
+                ok_text = ""
+                for patient in sorted(ok_team, key=lambda x: x.room):
+                    ok_text += f"{patient.room:5} Med {patient.current_team:2d}\n"
+                st.code(ok_text, language=None)
+            else:
+                st.info("None yet")
+
+        st.markdown("---")
+        st.markdown("### New Assignments by Team")
+
+        team_rosters = defaultdict(list)
+        team_leaving = defaultdict(int)
+
+        for patient in ok_team:
+            team_rosters[patient.current_team].append((patient.room, "stays"))
+
+        for patient, rec_team in recommendations:
+            if rec_team:
+                team_rosters[rec_team].append((patient.room, "new"))
+                team_leaving[patient.current_team] += 1
+
+        teams_to_show = [t for t in ALL_TEAMS if t not in shuffle_closed_teams]
+
+        for row_start in range(0, len(teams_to_show), 5):
+            row_teams = teams_to_show[row_start:row_start + 5]
+            cols = st.columns(5)
+
+            for col, team in zip(cols, row_teams):
+                with col:
+                    roster = team_rosters[team]
+                    new_count = sum(1 for _, status in roster if status == "new")
+                    old_count = team_leaving[team]
+                    imcu = "*" if team in IMCU_TEAMS else ""
+                    floors = TEAM_FLOORS_STR.get(team, "")
+                    proj = projected_census.get(team, 0)
+
+                    roster_text = f"Med {team}{imcu} ({proj})\n"
+                    roster_text += f"{floors}\n"
+                    roster_text += "-" * 14 + "\n"
+
+                    if roster or old_count > 0:
+                        for room, status in sorted(roster):
+                            marker = ">" if status == "new" else " "
+                            roster_text += f"{marker} {room}\n"
+                        roster_text += f"\n-{old_count} old, +{new_count} new"
+                    else:
+                        roster_text += "(no changes)"
+
+                    st.code(roster_text, language=None)
