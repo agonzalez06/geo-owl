@@ -511,41 +511,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# =============================================================================
-# PASSWORD PROTECTION
-# =============================================================================
-
-def check_password():
-    """Returns True if the user has entered the correct password."""
-
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
-
-    if st.session_state.authenticated:
-        return True
-
-    # Get password from secrets (set in Streamlit Cloud or .streamlit/secrets.toml)
-    try:
-        correct_password = st.secrets["password"]
-    except (KeyError, FileNotFoundError):
-        # Fallback for local dev - you can change this
-        correct_password = "geoowl2026"
-
-    st.markdown("### 🔒 Login Required")
-    password = st.text_input("Password", type="password", key="password_input")
-
-    if st.button("Login", type="primary"):
-        if password == correct_password:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("Incorrect password")
-
-    return False
-
-# Check password before showing anything else
-if not check_password():
-    st.stop()
 
 # Initialize dark mode based on time of day (dark after 7pm, before 7am)
 if 'dark_mode' not in st.session_state:
@@ -1263,13 +1228,35 @@ with tab_shuffle:
                     st.code(roster_text, language=None)
 
 # =============================================================================
-# TAB 3: ANC SHEET
+# TAB 3: ANC SHEET (Password Protected)
 # =============================================================================
 
 with tab_anc:
     st.subheader("ANC Sheet")
 
-    if not ANC_AVAILABLE:
+    # Initialize auth state for ANC tab
+    if 'anc_authenticated' not in st.session_state:
+        st.session_state.anc_authenticated = False
+
+    # Password check for ANC tab
+    if not st.session_state.anc_authenticated:
+        # Get password from secrets
+        try:
+            correct_password = st.secrets["password"]
+        except (KeyError, FileNotFoundError):
+            correct_password = "geoowl2026"
+
+        st.markdown("🔒 **Password required to access ANC sheets**")
+        password = st.text_input("Password", type="password", key="anc_password_input")
+
+        if st.button("Login", type="primary", key="anc_login_btn"):
+            if password == correct_password:
+                st.session_state.anc_authenticated = True
+                st.rerun()
+            else:
+                st.error("Incorrect password")
+
+    elif not ANC_AVAILABLE:
         st.error("ANC generator not available. Check that anc_generator.py is in the same directory.")
     else:
         today = datetime.now()
