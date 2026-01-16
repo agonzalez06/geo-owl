@@ -1231,35 +1231,45 @@ with tab_shuffle:
 # =============================================================================
 
 with tab_anc:
-    st.subheader("ANC Sheet Generator")
+    st.subheader("ANC Sheet")
 
     if not ANC_AVAILABLE:
         st.error("ANC generator not available. Check that anc_generator.py is in the same directory.")
     else:
         today = datetime.now()
-        st.write(f"Generate ANC sheet for **{today.strftime('%A, %B %d, %Y')}**")
+        today_str = today.strftime('%Y-%m-%d')
 
-        if st.button("Generate ANC Sheet", type="primary", key="anc_generate_btn"):
-            with st.spinner("Generating ANC sheet..."):
+        # Check if we need to generate (new day or not yet generated)
+        if 'anc_date' not in st.session_state or st.session_state.anc_date != today_str:
+            st.session_state.anc_date = today_str
+            st.session_state.anc_file = None
+            st.session_state.anc_filename = None
+
+        # Auto-generate if not already done
+        if st.session_state.anc_file is None:
+            with st.spinner(f"Generating ANC sheet for {today.strftime('%A, %B %d, %Y')}..."):
                 try:
                     output_dir = Path(__file__).parent
                     output_path = generate_anc_for_date(today, output_dir=str(output_dir), output_format='docx')
 
                     if output_path and Path(output_path).exists():
-                        st.success(f"ANC sheet generated!")
-
-                        # Provide download button
                         with open(output_path, "rb") as f:
-                            file_bytes = f.read()
-
-                        filename = Path(output_path).name
-                        st.download_button(
-                            label="Download ANC Sheet",
-                            data=file_bytes,
-                            file_name=filename,
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-                    else:
-                        st.error("Failed to generate ANC sheet.")
+                            st.session_state.anc_file = f.read()
+                        st.session_state.anc_filename = Path(output_path).name
                 except Exception as e:
                     st.error(f"Error generating ANC sheet: {e}")
+
+        # Show download button if file is ready
+        if st.session_state.anc_file:
+            st.write(f"**{today.strftime('%A, %B %d, %Y')}**")
+            st.download_button(
+                label="Download ANC Sheet",
+                data=st.session_state.anc_file,
+                file_name=st.session_state.anc_filename,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary"
+            )
+
+            if st.button("Regenerate", key="anc_regen_btn"):
+                st.session_state.anc_file = None
+                st.rerun()
