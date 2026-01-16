@@ -866,6 +866,11 @@ with tab_shuffle:
             )
 
             if uploaded_files:
+                process_btn = st.button("Process Screenshots", type="primary", key="shuffle_ocr_btn")
+            else:
+                process_btn = False
+
+            if process_btn:
                 all_pairs = []
 
                 for uploaded_file in uploaded_files:
