@@ -1255,6 +1255,15 @@ with tab_anc:
         except (KeyError, FileNotFoundError):
             correct_password = "geoowl2026"
 
+        # Hide password field hints
+        st.markdown("""
+        <style>
+        input[type="password"]::placeholder { color: transparent !important; }
+        input[type="password"]::-webkit-input-placeholder { color: transparent !important; }
+        div[data-baseweb="input"] > div:last-child { display: none !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
         st.markdown("🔒 **Password required**")
         col1, col2 = st.columns([1, 3])
         with col1:
@@ -1262,18 +1271,17 @@ with tab_anc:
                 "Password",
                 type="password",
                 key="anc_pwd_field",
-                label_visibility="collapsed",
-                placeholder=" "
+                label_visibility="collapsed"
             )
             login_btn = st.button("Login", type="primary", key="anc_login_btn")
 
-            # Check on button click OR if password field has value (Enter was pressed)
-            if login_btn or (password and password == correct_password):
+            if login_btn:
                 if password == correct_password:
                     st.session_state.anc_authenticated = True
                     st.session_state.anc_auth_time = datetime.now()
+                    st.session_state.anc_file = None  # Force regenerate
                     st.rerun()
-                elif password:
+                else:
                     st.error("Incorrect password")
 
     elif not ANC_AVAILABLE:
