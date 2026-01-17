@@ -1363,6 +1363,8 @@ def create_roster_table(doc: Document, data: dict) -> None:
         if team.resident:
             row.cells[2].text = team.resident.name
             row.cells[3].text = team.resident.phone
+        else:
+            row.cells[2].text = "No admissions"
 
         # Attending info
         if team.attending:
