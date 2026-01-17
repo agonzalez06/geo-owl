@@ -1255,14 +1255,6 @@ with tab_anc:
         except (KeyError, FileNotFoundError):
             correct_password = "geoowl2026"
 
-        # Hide password field hints
-        st.markdown("""
-        <style>
-        input[type="password"]::placeholder { color: transparent !important; }
-        input[type="password"]::-webkit-input-placeholder { color: transparent !important; }
-        div[data-baseweb="input"] > div:last-child { display: none !important; }
-        </style>
-        """, unsafe_allow_html=True)
 
         st.markdown("🔒 **Password required**")
         col1, col2 = st.columns([1, 3])
