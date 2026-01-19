@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 
@@ -1279,7 +1279,12 @@ with tab_anc:
     elif not ANC_AVAILABLE:
         st.error("ANC generator not available. Check that anc_generator.py is in the same directory.")
     else:
-        today = datetime.now()
+        # Hospital days run 7am-7am, so before 7am we're still in "yesterday's" day
+        now = datetime.now()
+        if now.hour < 7:
+            today = now - timedelta(days=1)
+        else:
+            today = now
         today_str = today.strftime('%Y-%m-%d')
 
         # Check if we need to generate (new day or not yet generated)

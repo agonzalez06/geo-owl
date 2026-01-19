@@ -1943,21 +1943,39 @@ if __name__ == "__main__":
         elif arg.lower() in ('--pdf', '-p'):
             format_from_arg = 'pdf'
         elif target_date is None:
-            # Date provided as argument (format: MM-DD-YYYY or YYYY-MM-DD)
-            try:
-                if '-' in arg and len(arg.split('-')[0]) == 4:
-                    target_date = datetime.strptime(arg, '%Y-%m-%d')
-                else:
-                    target_date = datetime.strptime(arg, '%m-%d-%Y')
-            except ValueError:
-                print(f"Invalid date format: {arg}")
-                print("Use: MM-DD-YYYY or YYYY-MM-DD")
-                print("Options: --pdf, --docx")
-                sys.exit(1)
+            # Hospital days run 7am-7am, so calculate "today" accordingly
+            now = datetime.now()
+            if now.hour < 7:
+                hospital_today = now - timedelta(days=1)
+            else:
+                hospital_today = now
+
+            # Support keywords: today, tomorrow
+            if arg.lower() == 'today':
+                target_date = hospital_today
+            elif arg.lower() == 'tomorrow':
+                target_date = hospital_today + timedelta(days=1)
+            else:
+                # Date provided as argument (format: MM-DD-YYYY or YYYY-MM-DD)
+                try:
+                    if '-' in arg and len(arg.split('-')[0]) == 4:
+                        target_date = datetime.strptime(arg, '%Y-%m-%d')
+                    else:
+                        target_date = datetime.strptime(arg, '%m-%d-%Y')
+                except ValueError:
+                    print(f"Invalid date format: {arg}")
+                    print("Use: MM-DD-YYYY, YYYY-MM-DD, 'today', or 'tomorrow'")
+                    print("Options: --pdf, --docx")
+                    sys.exit(1)
 
     if target_date is None:
-        # Default to today
-        target_date = datetime.now()
+        # Default to today, but hospital days run 7am-7am
+        # Before 7am, we're still in "yesterday's" hospital day
+        now = datetime.now()
+        if now.hour < 7:
+            target_date = now - timedelta(days=1)
+        else:
+            target_date = now
 
     print(f"Date: {target_date.strftime('%A, %B %d, %Y')}")
     print()
