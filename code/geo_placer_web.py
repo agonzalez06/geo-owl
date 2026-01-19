@@ -27,6 +27,9 @@ try:
 except ImportError:
     ANC_AVAILABLE = False
 
+# Path to logo (relative to this script's location)
+LOGO_PATH = str(Path(__file__).parent.parent / "assets" / "logo.png")
+
 
 def preprocess_image_for_ocr(image):
     """
@@ -507,7 +510,7 @@ def fix_ocr_room(room: str) -> str:
 
 st.set_page_config(
     page_title="Geo Owl",
-    page_icon="Gemini_Generated_Image_2hkaog2hkaog2hka.png",
+    page_icon=LOGO_PATH,
     layout="wide"
 )
 
@@ -619,7 +622,7 @@ st.markdown(base_css + "</style>", unsafe_allow_html=True)
 # Header with logo
 header_col1, header_col2 = st.columns([1, 8])
 with header_col1:
-    st.image("Gemini_Generated_Image_2hkaog2hkaog2hka.png", use_container_width=True)
+    st.image(LOGO_PATH, use_container_width=True)
 with header_col2:
     st.title("Geographic Placement Optimizer")
     st.markdown("Optimal team assignments based on geography and census.")
