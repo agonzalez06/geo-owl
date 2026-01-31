@@ -666,29 +666,41 @@ with tab_nights:
         nights_closed_teams = set()
 
         for team in ALL_TEAMS:
-            label_col, input_col = st.columns([1, 3])
-            with label_col:
-                imcu = "*" if team in IMCU_TEAMS else ""
-                st.markdown(f"<div style='padding-top:8px; text-align:right'>Med {team}{imcu}</div>", unsafe_allow_html=True)
-            with input_col:
-                value = st.text_input(
-                    f"Med {team}",
-                    key=f"nights_census_{team}",
+            check_col, label_col, input_col = st.columns([0.4, 0.8, 1.8])
+            with check_col:
+                # Teams 1-13 checked by default, 14-15 unchecked
+                enabled = st.checkbox(
+                    f"Enable Med {team}",
+                    value=(team <= 13),
+                    key=f"nights_enable_{team}",
                     label_visibility="collapsed"
                 )
-
-            if value:
-                value_upper = value.strip().upper()
-                if value_upper in ('X', 'NA', 'CLOSED', 'N/A', '-'):
+            with label_col:
+                imcu = "*" if team in IMCU_TEAMS else ""
+                st.markdown(f"<div style='padding-top:8px'>Med {team}{imcu}</div>", unsafe_allow_html=True)
+            with input_col:
+                if enabled:
+                    value = st.text_input(
+                        f"Med {team}",
+                        key=f"nights_census_{team}",
+                        label_visibility="collapsed"
+                    )
+                    if value:
+                        value_upper = value.strip().upper()
+                        if value_upper in ('X', 'NA', 'CLOSED', 'N/A', '-'):
+                            nights_closed_teams.add(team)
+                            nights_census[team] = 0
+                        else:
+                            try:
+                                nights_census[team] = int(value)
+                            except ValueError:
+                                nights_census[team] = 0
+                    else:
+                        nights_census[team] = 0
+                else:
                     nights_closed_teams.add(team)
                     nights_census[team] = 0
-                else:
-                    try:
-                        nights_census[team] = int(value)
-                    except ValueError:
-                        nights_census[team] = 0
-            else:
-                nights_census[team] = 0
+                    st.markdown("<div style='padding-top:8px; color:#888'>—</div>", unsafe_allow_html=True)
 
     # Columns 2-5: Overnight Doctors (Amion naming)
     doc_cols = [doc1_col, doc2_col, doc3_col, doc4_col]
