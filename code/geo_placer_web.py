@@ -942,9 +942,16 @@ with tab_nights:
                     by_team[a.team].append((a.patient.raw_location, a.patient.admitted_by))
 
                 epic_lines = ["Good Morning! Here are today's redis:"]
+                # Teams receiving redis
                 for team in sorted(by_team.keys()):
                     patient_strs = [f"{room} ({doc})" for room, doc in by_team[team]]
                     epic_lines.append(f"Med {team}: {', '.join(patient_strs)}")
+                # Teams open but not receiving redis
+                no_redis_teams = [t for t in sorted(nights_closed_teams) if nights_census.get(t, 0) > 0]
+                if no_redis_teams:
+                    epic_lines.append("")
+                    for team in no_redis_teams:
+                        epic_lines.append(f"Med {team}: no redis today")
 
                 epic_message = "\n".join(epic_lines)
                 line_count = len(epic_lines)
