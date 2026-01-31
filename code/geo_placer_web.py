@@ -329,24 +329,27 @@ def optimize_placements(
                 valid_geo_teams.append(t)
 
             if valid_geo_teams:
+                # Score by fewest redis, with IMCU penalty when near target
                 def geo_score(t):
-                    c = census.get(t, 0)
-                    if t in IMCU_TEAMS and c >= IMCU_TARGET:
-                        return c + 50
-                    return c
+                    redis = new_assignments[t]
+                    if t in IMCU_TEAMS and census.get(t, 0) >= IMCU_TARGET:
+                        return redis + 50
+                    return redis
 
                 best_geo_team = min(valid_geo_teams, key=geo_score)
-                best_geo_census = census.get(best_geo_team, 0)
+                best_geo_redis = new_assignments[best_geo_team]
 
                 non_imcu_regular = [t for t in regular_open_teams if t not in IMCU_TEAMS]
                 if non_imcu_regular:
-                    lowest_census_team = min(non_imcu_regular, key=lambda t: census.get(t, 0))
-                    lowest_census = census.get(lowest_census_team, 0)
+                    # Find team with fewest redis for balance comparison
+                    lowest_redis_team = min(non_imcu_regular, key=lambda t: new_assignments[t])
+                    lowest_redis = new_assignments[lowest_redis_team]
 
-                    if best_geo_census >= lowest_census + MAX_CENSUS_GAP and lowest_census_team not in valid_geo_teams:
-                        best_team = lowest_census_team
+                    # Balance override if geo team has 2+ more redis than lowest
+                    if best_geo_redis >= lowest_redis + MAX_CENSUS_GAP and lowest_redis_team not in valid_geo_teams:
+                        best_team = lowest_redis_team
                         is_geo = False
-                        reason = f"Balance override ({patient.floor}→Med {best_geo_team} would be {best_geo_census+1}, Med {lowest_census_team} only {lowest_census})"
+                        reason = f"Balance override ({patient.floor}→Med {best_geo_team} has {best_geo_redis} redis, Med {lowest_redis_team} only {lowest_redis})"
                     else:
                         best_team = best_geo_team
                         is_geo = True
@@ -359,18 +362,18 @@ def optimize_placements(
                 available_geo = [t for t in geo_teams if t not in IMCU_TEAMS or census.get(t, 0) < IMCU_CAP]
 
                 if available_geo:
-                    best_geo = min(available_geo, key=lambda t: census.get(t, 0))
-                    best_geo_census = census.get(best_geo, 0)
+                    best_geo = min(available_geo, key=lambda t: new_assignments[t])
+                    best_geo_redis = new_assignments[best_geo]
 
                     non_imcu_non_geo = [t for t in regular_open_teams if t not in IMCU_TEAMS and t not in geo_teams]
                     if non_imcu_non_geo:
-                        best_non_geo = min(non_imcu_non_geo, key=lambda t: census.get(t, 0))
-                        best_non_geo_census = census.get(best_non_geo, 0)
+                        best_non_geo = min(non_imcu_non_geo, key=lambda t: new_assignments[t])
+                        best_non_geo_redis = new_assignments[best_non_geo]
 
-                        if best_geo_census >= best_non_geo_census + 3:
+                        if best_geo_redis >= best_non_geo_redis + 3:
                             best_team = best_non_geo
                             is_geo = False
-                            reason = f"Balance override ({patient.floor} geo full, Med {best_team} lower census)"
+                            reason = f"Balance override ({patient.floor} geo full, Med {best_team} fewer redis)"
                         else:
                             best_team = best_geo
                             is_geo = True
@@ -381,34 +384,35 @@ def optimize_placements(
                         reason = f"Geographic (equity override, {patient.floor} → Med {best_team})"
 
         if best_team is None:
+            # No geographic match - pick team with fewest redis (respecting caps)
             non_imcu_regular = [t for t in regular_open_teams if t not in IMCU_TEAMS]
             non_imcu_overflow = [t for t in OVERFLOW_TEAMS if t in open_teams and t not in IMCU_TEAMS]
 
             regular_under_cap = [t for t in non_imcu_regular if census.get(t, 0) < SOFT_CAP]
             if regular_under_cap:
-                best_team = min(regular_under_cap, key=lambda t: census.get(t, 0))
+                best_team = min(regular_under_cap, key=lambda t: new_assignments[t])
             elif non_imcu_overflow:
                 overflow_under_cap = [t for t in non_imcu_overflow if census.get(t, 0) < SOFT_CAP]
                 if overflow_under_cap:
-                    best_team = min(overflow_under_cap, key=lambda t: census.get(t, 0))
+                    best_team = min(overflow_under_cap, key=lambda t: new_assignments[t])
                 elif non_imcu_regular:
-                    best_team = min(non_imcu_regular, key=lambda t: census.get(t, 0))
+                    best_team = min(non_imcu_regular, key=lambda t: new_assignments[t])
                 else:
-                    best_team = min(non_imcu_overflow, key=lambda t: census.get(t, 0))
+                    best_team = min(non_imcu_overflow, key=lambda t: new_assignments[t])
             elif non_imcu_regular:
-                best_team = min(non_imcu_regular, key=lambda t: census.get(t, 0))
+                best_team = min(non_imcu_regular, key=lambda t: new_assignments[t])
             elif open_teams:
-                best_team = min(open_teams, key=lambda t: census.get(t, 0))
+                best_team = min(open_teams, key=lambda t: new_assignments[t])
             else:
                 continue
 
             is_geo = False
             if patient.floor == 'BOYER':
-                reason = f"Boyer overflow (Med 12 full), lowest census"
+                reason = f"Boyer overflow (Med 12 full), fewest redis"
             elif patient.floor:
-                reason = f"No geographic capacity for {patient.floor}, lowest census"
+                reason = f"No geographic capacity for {patient.floor}, fewest redis"
             else:
-                reason = f"No floor specified, lowest census"
+                reason = f"No floor specified, fewest redis"
 
         census[best_team] = census.get(best_team, 0) + 1
         new_assignments[best_team] += 1
