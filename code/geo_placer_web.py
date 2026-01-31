@@ -163,7 +163,7 @@ IMCU_TARGET = 9
 IMCU_CAP = 10
 SOFT_CAP = 14
 MAX_NEW_BEFORE_SPREAD = 3
-MAX_CENSUS_GAP = 4
+MAX_CENSUS_GAP = 2  # Balance kicks in when gap would be 2+ (was 4)
 
 
 @dataclass
