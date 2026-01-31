@@ -684,7 +684,7 @@ with tab_nights:
     # Column 1: Team Census (compact layout)
     with census_col:
         st.subheader("Census")
-        st.caption("X = closed")
+        st.caption("✓ = accept redis")
 
         nights_census = {}
         nights_closed_teams = set()
@@ -704,8 +704,9 @@ with tab_nights:
                 default_census = ""
 
             with check_col:
-                enabled = st.checkbox(
-                    f"Enable Med {team}",
+                # Checkbox = accept redis (not team existence)
+                accept_redis = st.checkbox(
+                    f"Accept redis Med {team}",
                     value=default_enabled,
                     key=f"nights_enable_{team}{key_suffix}",
                     label_visibility="collapsed"
@@ -714,29 +715,24 @@ with tab_nights:
                 imcu = "*" if team in IMCU_TEAMS else ""
                 st.markdown(f"<div style='padding-top:8px'>Med {team}{imcu}</div>", unsafe_allow_html=True)
             with input_col:
-                if enabled:
-                    value = st.text_input(
-                        f"Med {team}",
-                        value=default_census,
-                        key=f"nights_census_{team}{key_suffix}",
-                        label_visibility="collapsed"
-                    )
-                    if value:
-                        value_upper = value.strip().upper()
-                        if value_upper in ('X', 'NA', 'CLOSED', 'N/A', '-'):
-                            nights_closed_teams.add(team)
-                            nights_census[team] = 0
-                        else:
-                            try:
-                                nights_census[team] = int(value)
-                            except ValueError:
-                                nights_census[team] = 0
-                    else:
+                # Always show census input
+                value = st.text_input(
+                    f"Med {team}",
+                    value=default_census,
+                    key=f"nights_census_{team}{key_suffix}",
+                    label_visibility="collapsed"
+                )
+                if value:
+                    try:
+                        nights_census[team] = int(value)
+                    except ValueError:
                         nights_census[team] = 0
                 else:
-                    nights_closed_teams.add(team)
                     nights_census[team] = 0
-                    st.markdown("<div style='padding-top:8px; color:#888'>—</div>", unsafe_allow_html=True)
+
+            # If not accepting redis, add to closed teams
+            if not accept_redis:
+                nights_closed_teams.add(team)
 
     # Columns 2-5: Overnight Doctors (Amion naming)
     doc_cols = [doc1_col, doc2_col, doc3_col, doc4_col]
@@ -782,7 +778,7 @@ with tab_nights:
 
     # Show closed teams
     if nights_closed_teams:
-        st.info(f"**Closed teams:** {', '.join(f'Med {t}' for t in sorted(nights_closed_teams))}")
+        st.info(f"**Not accepting redis:** {', '.join(f'Med {t}' for t in sorted(nights_closed_teams))}")
 
     # Button row: Optimize (4/5) + Demo/Clear (1/5)
     btn_col1, btn_col2 = st.columns([4, 1])
