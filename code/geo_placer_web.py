@@ -868,13 +868,19 @@ with tab_nights:
                 summary_text += "-" * 26 + "\n"
 
                 for team in ALL_TEAMS:
-                    if team in nights_closed_teams:
-                        summary_text += f"Med {team:2d}   -- CLOSED\n"
-                        continue
-
                     start = nights_census.get(team, 0)
                     final = final_census.get(team, 0)
                     new = final - start
+
+                    imcu = "*" if team in IMCU_TEAMS else " "
+
+                    if team in nights_closed_teams:
+                        # Show census but mark as not accepting redis
+                        if start > 0:
+                            summary_text += f"Med {team:2d}{imcu} {start:2d}   -   ={start:2d} (no redis)\n"
+                        else:
+                            summary_text += f"Med {team:2d}{imcu}  -   -    - (no redis)\n"
+                        continue
 
                     warning = ""
                     if team in IMCU_TEAMS and final >= IMCU_CAP:
@@ -882,7 +888,6 @@ with tab_nights:
                     elif team not in IMCU_TEAMS and final >= SOFT_CAP:
                         warning = " HIGH"
 
-                    imcu = "*" if team in IMCU_TEAMS else " "
                     summary_text += f"Med {team:2d}{imcu} {start:2d}  +{new:2d}  ={final:2d}{warning}\n"
 
                 summary_text += "\n* = IMCU (cap: 10)"
@@ -904,16 +909,20 @@ with tab_nights:
 
                 by_team_text = ""
                 for team in ALL_TEAMS:
-                    if team in nights_closed_teams:
-                        continue
                     team_assignments = by_team[team]
+                    start = nights_census.get(team, 0)
+                    final = final_census.get(team, 0)
+                    imcu = "*" if team in IMCU_TEAMS else ""
+
+                    if team in nights_closed_teams:
+                        # Show teams not accepting redis if they have census
+                        if start > 0:
+                            by_team_text += f"Med {team}{imcu} ({start}, no redis)\n\n"
+                        continue
+
                     if not team_assignments:
                         continue
 
-                    start = nights_census.get(team, 0)
-                    final = final_census.get(team, 0)
-
-                    imcu = "*" if team in IMCU_TEAMS else ""
                     by_team_text += f"Med {team}{imcu} ({start}→{final})\n"
 
                     for a in team_assignments:
