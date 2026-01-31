@@ -165,6 +165,22 @@ SOFT_CAP = 14
 MAX_NEW_BEFORE_SPREAD = 3
 MAX_CENSUS_GAP = 2  # Balance kicks in when gap would be 2+ (was 4)
 
+# Demo data
+DEMO_CENSUS = {
+    1: 8, 2: 7, 3: 9,       # IMCU teams
+    4: 10, 5: 11, 6: 8,
+    7: 9, 8: 12, 9: 7,
+    10: 10, 11: 6, 12: 11,
+    13: 8, 14: 0, 15: 0     # 14/15 closed in demo
+}
+DEMO_DOCTORS = ["Jason", "John", "Lauren", "Kevin"]
+DEMO_PATIENTS = [
+    "312\nIMCU\n345\n308\n335",      # Jason (Med Q) - floor 3/IMCU
+    "418\n512A\n635B\n445\n505",     # John (Med S) - floors 4-6
+    "745\n714\n732\n815\n709",       # Lauren (Med Y) - floors 7-8
+    "508\n612\n877\nED\n410",        # Kevin (Med Z) - mixed/overflow
+]
+
 
 @dataclass
 class Patient:
@@ -654,6 +670,10 @@ tab_nights, tab_shuffle, tab_anc = st.tabs(["Overnight Redis", "Monday Shuffle",
 # =============================================================================
 
 with tab_nights:
+    # Initialize demo mode
+    if 'demo_mode' not in st.session_state:
+        st.session_state.demo_mode = False
+
     # Create 5 columns: Census + 4 Doctors side by side
     census_col, doc1_col, doc2_col, doc3_col, doc4_col = st.columns([1, 1, 1, 1, 1])
 
@@ -737,8 +757,39 @@ with tab_nights:
     if nights_closed_teams:
         st.info(f"**Closed teams:** {', '.join(f'Med {t}' for t in sorted(nights_closed_teams))}")
 
-    # Process button
-    if st.button("Optimize Placements", type="primary", use_container_width=True, key="nights_optimize"):
+    # Button row: Optimize (4/5) + Demo/Clear (1/5)
+    btn_col1, btn_col2 = st.columns([4, 1])
+    with btn_col1:
+        optimize_clicked = st.button("Optimize Placements", type="primary", use_container_width=True, key="nights_optimize")
+    with btn_col2:
+        if st.session_state.demo_mode:
+            if st.button("Clear", use_container_width=True, key="nights_clear"):
+                st.session_state.demo_mode = False
+                # Clear all demo values
+                for team in ALL_TEAMS:
+                    if f"nights_census_{team}" in st.session_state:
+                        del st.session_state[f"nights_census_{team}"]
+                    if f"nights_enable_{team}" in st.session_state:
+                        del st.session_state[f"nights_enable_{team}"]
+                for i in range(1, 5):
+                    if f"nights_doc_{i}" in st.session_state:
+                        del st.session_state[f"nights_doc_{i}"]
+                    if f"nights_patients_{i}" in st.session_state:
+                        del st.session_state[f"nights_patients_{i}"]
+                st.rerun()
+        else:
+            if st.button("Demo", use_container_width=True, key="nights_demo"):
+                st.session_state.demo_mode = True
+                # Populate demo values
+                for team, census in DEMO_CENSUS.items():
+                    st.session_state[f"nights_census_{team}"] = str(census) if census > 0 else ""
+                    st.session_state[f"nights_enable_{team}"] = (team <= 13)
+                for i, (name, patients) in enumerate(zip(DEMO_DOCTORS, DEMO_PATIENTS), 1):
+                    st.session_state[f"nights_doc_{i}"] = name
+                    st.session_state[f"nights_patients_{i}"] = patients
+                st.rerun()
+
+    if optimize_clicked:
         # Parse patients from all 4 doctor columns
         patients = []
         seen = set()
