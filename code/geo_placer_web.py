@@ -874,12 +874,14 @@ with tab_nights:
 
                     imcu = "*" if team in IMCU_TEAMS else " "
 
+                    # Census 0 = service closed
+                    if start == 0 and team in nights_closed_teams:
+                        summary_text += f"Med {team:2d}{imcu}  --  CLOSED\n"
+                        continue
+
+                    # Has census but not accepting redis
                     if team in nights_closed_teams:
-                        # Show census but mark as not accepting redis
-                        if start > 0:
-                            summary_text += f"Med {team:2d}{imcu} {start:2d}   -   ={start:2d} (no redis)\n"
-                        else:
-                            summary_text += f"Med {team:2d}{imcu}  -   -    - (no redis)\n"
+                        summary_text += f"Med {team:2d}{imcu} {start:2d}   -   ={start:2d} (no redis)\n"
                         continue
 
                     warning = ""
@@ -915,9 +917,11 @@ with tab_nights:
                     imcu = "*" if team in IMCU_TEAMS else ""
 
                     if team in nights_closed_teams:
-                        # Show teams not accepting redis if they have census
-                        if start > 0:
-                            by_team_text += f"Med {team}{imcu} ({start}, no redis)\n\n"
+                        # Census 0 = closed, skip entirely
+                        if start == 0:
+                            continue
+                        # Has census but not accepting redis
+                        by_team_text += f"Med {team}{imcu} ({start}, no redis)\n\n"
                         continue
 
                     if not team_assignments:
