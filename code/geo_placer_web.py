@@ -951,7 +951,7 @@ with tab_nights:
                 if no_redis_teams:
                     epic_lines.append("")
                     for team in no_redis_teams:
-                        epic_lines.append(f"Med {team}: no redis today")
+                        epic_lines.append(f"Med {team}: no redis")
 
                 epic_message = "\n".join(epic_lines)
                 line_count = len(epic_lines)
