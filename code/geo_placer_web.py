@@ -157,7 +157,7 @@ TEAM_FLOORS_STR = {
 }
 
 ALL_TEAMS = list(range(1, 16))
-OVERFLOW_TEAMS = [14, 15]  # Med 13 is now a regular team
+OVERFLOW_TEAMS = []  # All teams regular when enabled; checkboxes control availability
 IMCU_TEAMS = [1, 2, 3]
 IMCU_TARGET = 9
 IMCU_CAP = 10
