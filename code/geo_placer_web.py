@@ -173,12 +173,13 @@ DEMO_CENSUS = {
     10: 10, 11: 6, 12: 11,
     13: 8, 14: 0, 15: 0     # 14/15 closed in demo
 }
-DEMO_DOCTORS = ["Jason", "John", "Lauren", "Kevin"]
+DEMO_DOCTORS = ["Jason", "John", "Lauren", "Kevin", ""]
 DEMO_PATIENTS = [
     "312\nIMCU\n345\n308\n335",      # Jason (Med Q) - floor 3/IMCU
     "418\n512A\n635B\n445\n505",     # John (Med S) - floors 4-6
     "745\n714\n732\n815\n709",       # Lauren (Med Y) - floors 7-8
     "508\n612\n877\nED\n410",        # Kevin (Med Z) - mixed/overflow
+    "303\n542\n618",                  # Other - miscellaneous
 ]
 
 
@@ -678,8 +679,8 @@ with tab_nights:
     if 'demo_mode' not in st.session_state:
         st.session_state.demo_mode = False
 
-    # Create 5 columns: Census + 4 Doctors side by side
-    census_col, doc1_col, doc2_col, doc3_col, doc4_col = st.columns([1, 1, 1, 1, 1])
+    # Create 6 columns: Census + 4 Doctors + Other side by side
+    census_col, doc1_col, doc2_col, doc3_col, doc4_col, other_col = st.columns([1, 1, 1, 1, 1, 1])
 
     # Column 1: Team Census (compact layout)
     with census_col:
@@ -734,20 +735,24 @@ with tab_nights:
             if not accept_redis:
                 nights_closed_teams.add(team)
 
-    # Columns 2-5: Overnight Doctors (Amion naming)
-    doc_cols = [doc1_col, doc2_col, doc3_col, doc4_col]
+    # Columns 2-6: Overnight Doctors (Amion naming) + Other
+    doc_cols = [doc1_col, doc2_col, doc3_col, doc4_col, other_col]
     doc_labels = [
         ("Med Q", "1-3"),
         ("Med S", "4-6"),
         ("Med Y", "7-9"),
         ("Med Z", "10-13"),
+        ("Other", ""),
     ]
     doctor_names = []
     doctor_patients = []
 
     for i, (doc_col, (code, teams)) in enumerate(zip(doc_cols, doc_labels), 1):
         with doc_col:
-            st.subheader(f"{code} ({teams})")
+            if teams:
+                st.subheader(f"{code} ({teams})")
+            else:
+                st.subheader(code)
 
             # Get demo values if in demo mode
             if st.session_state.demo_mode:
