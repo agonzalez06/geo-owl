@@ -694,7 +694,7 @@ with tab_nights:
         key_suffix = "_demo" if st.session_state.demo_mode else ""
 
         for team in ALL_TEAMS:
-            check_col, label_col, input_col = st.columns([0.4, 0.8, 1.8])
+            check_col, label_col, input_col = st.columns([0.4, 0.9, 1.2])
 
             # Get default values based on demo mode
             if st.session_state.demo_mode:
