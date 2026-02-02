@@ -70,9 +70,13 @@ IMCU_CAP = 10  # Hard cap for IMCU teams
 # Soft cap for regular teams - try not to exceed
 SOFT_CAP = 14  # Avoid loading teams above this
 
-# Equity rules
-MAX_NEW_BEFORE_SPREAD = 3  # Don't give team more than 3 new patients if others have capacity
-MAX_CENSUS_GAP = 4  # If assigning to team would create gap > this vs lowest team, prefer balance
+# Scoring weights (lower score = better)
+# score = (census * CENSUS_WEIGHT) + (redis * REDIS_WEIGHT) + penalty
+# penalty = 0 if geographic, GEO_PENALTY if not (or IMCU_PENALTY for 3W/IMCU patients)
+CENSUS_WEIGHT = 1.0    # Weight for current census
+REDIS_WEIGHT = 1.0     # Weight for new patients (redis) tonight
+GEO_PENALTY = 3.0      # Penalty for non-geographic placement
+IMCU_PENALTY = 10.0    # Higher penalty for 3W/IMCU patients going off-floor (they NEED Med 1-3)
 
 # =============================================================================
 # DATA STRUCTURES
@@ -204,166 +208,138 @@ def get_geographic_teams(floor: str) -> list[int]:
 # PLACEMENT ALGORITHM
 # =============================================================================
 
+def get_patient_priority(patient: Patient) -> tuple:
+    """
+    Get sort priority for a patient. Lower = processed first.
+
+    Order:
+    1. 3W/IMCU patients (NEED Med 1-3)
+    2. 3E patients (PREFER Med 1-3)
+    3. Other geographic patients
+    4. Non-geographic patients (ED, unknown floor)
+    """
+    floor = patient.floor
+    if not floor:
+        return (3, 'ZZZ', patient.identifier)
+
+    geo_teams = get_geographic_teams(floor)
+    if not geo_teams:
+        return (3, floor, patient.identifier)
+
+    # 3W and IMCU - NEED to go to Med 1-3
+    if floor in ['3W', 'IMCU']:
+        return (0, floor, patient.identifier)
+
+    # 3E - PREFER Med 1-3 but can go elsewhere
+    if floor == '3E':
+        return (1, floor, patient.identifier)
+
+    # Other geographic floors
+    return (2, floor, patient.identifier)
+
+
 def optimize_placements(
     patients: list[Patient],
     current_census: dict[int, int],
     closed_teams: set[int] = None
 ) -> list[Assignment]:
     """
-    Assign patients to teams optimizing for geography, balance, and equity.
+    Assign patients to teams using weighted scoring for census, redis, and geography.
 
-    Rules:
+    Scoring: score = (census * CENSUS_WEIGHT) + (redis * REDIS_WEIGHT) + penalty
+    - penalty = 0 if geographic
+    - penalty = IMCU_PENALTY (10) for 3W/IMCU patients going off-floor
+    - penalty = GEO_PENALTY (3) for other patients going off-floor
+
+    Lower score = better assignment.
+
+    Patient order: 3W/IMCU first (NEED), then 3E (PREFER), then other geo, then outliers.
+
+    Hard constraints:
     1. Never assign to closed teams
     2. Med 1-3 (IMCU) hard cap at 10 patients total
-    3. Soft cap of 14 for all other teams - avoid if possible
-    4. Don't give a team more than 3 new patients if other geographic teams have capacity
-    5. Among valid teams, pick the one with lowest census
-    6. More aggressive balancing - prefer low census teams even over geography
+    3. Prefer teams under soft cap (14) when possible
     """
     assignments = []
     census = current_census.copy()
-    new_assignments = {t: 0 for t in ALL_TEAMS}  # Track NEW patients per team
+    new_assignments = {t: 0 for t in ALL_TEAMS}  # Track NEW patients (redis) per team
     closed_teams = closed_teams or set()
 
-    # Get list of open teams (excluding overflow teams for regular assignments)
+    # Get list of open teams
     open_teams = [t for t in ALL_TEAMS if t not in closed_teams]
     regular_open_teams = [t for t in open_teams if t not in OVERFLOW_TEAMS]
 
-    # Sort patients by floor to group geographic placements
-    patients_sorted = sorted(patients, key=lambda p: (p.floor or 'ZZZ', p.identifier))
+    # Sort patients: 3W/IMCU first, then 3E, then other geo, then outliers
+    patients_sorted = sorted(patients, key=get_patient_priority)
 
     for patient in patients_sorted:
-        geo_teams_raw = get_geographic_teams(patient.floor) if patient.floor else []
-        # Filter out closed teams from geographic options
-        geo_teams = [t for t in geo_teams_raw if t not in closed_teams]
-        best_team = None
-        is_geo = False
-        reason = ""
+        geo_teams = set(get_geographic_teams(patient.floor) if patient.floor else [])
+        geo_teams -= closed_teams  # Remove closed teams
 
-        if geo_teams:
-            # Filter out teams that are at capacity or over limits
-            valid_geo_teams = []
-            for t in geo_teams:
-                # Check IMCU hard cap
-                if t in IMCU_TEAMS and census.get(t, 0) >= IMCU_CAP:
-                    continue
-                # Check soft cap for non-IMCU (try to avoid, but not absolute)
-                if t not in IMCU_TEAMS and census.get(t, 0) >= SOFT_CAP:
-                    # Only skip if there are other geo teams under soft cap
-                    others_under_cap = any(
-                        census.get(other, 0) < SOFT_CAP
-                        and (other not in IMCU_TEAMS or census.get(other, 0) < IMCU_CAP)
-                        for other in geo_teams if other != t
-                    )
-                    if others_under_cap:
-                        continue
-                # Check equity - if team already has 3+ new, see if others have fewer
-                if new_assignments[t] >= MAX_NEW_BEFORE_SPREAD:
-                    others_have_less = any(
-                        new_assignments[other] < new_assignments[t]
-                        and (other not in IMCU_TEAMS or census.get(other, 0) < IMCU_CAP)
-                        and census.get(other, 0) < SOFT_CAP
-                        for other in geo_teams if other != t
-                    )
-                    if others_have_less:
-                        continue
-                valid_geo_teams.append(t)
+        # Determine penalty for this patient
+        is_imcu_patient = patient.floor in ['3W', 'IMCU']
+        non_geo_penalty = IMCU_PENALTY if is_imcu_patient else GEO_PENALTY
 
-            if valid_geo_teams:
-                # Pick geographic team with lowest census
-                best_geo_team = min(valid_geo_teams, key=lambda t: census.get(t, 0))
-                best_geo_census = census.get(best_geo_team, 0)
+        def team_score(t: int) -> tuple[float, int, int]:
+            """
+            Score a team for this patient. Lower = better.
+            Returns (score, census, is_not_geo) for sorting.
+            """
+            c = census.get(t, 0)
+            r = new_assignments[t]
+            is_geo = t in geo_teams
 
-                # Check if this would create too big a gap vs lowest census REGULAR team
-                # (Don't compare against overflow teams 14/15)
-                non_imcu_regular = [t for t in regular_open_teams if t not in IMCU_TEAMS]
-                if non_imcu_regular:
-                    lowest_census_team = min(non_imcu_regular, key=lambda t: census.get(t, 0))
-                    lowest_census = census.get(lowest_census_team, 0)
+            # Score = census + redis + penalty
+            score = (c * CENSUS_WEIGHT) + (r * REDIS_WEIGHT)
+            if not is_geo:
+                score += non_geo_penalty
 
-                    # If geo team would be way higher than lowest, prefer balance
-                    if best_geo_census >= lowest_census + MAX_CENSUS_GAP and lowest_census_team not in valid_geo_teams:
-                        best_team = lowest_census_team
-                        is_geo = False
-                        reason = f"Balance override ({patient.floor}→Med {best_geo_team} would be {best_geo_census+1}, Med {lowest_census_team} only {lowest_census})"
-                    else:
-                        best_team = best_geo_team
-                        is_geo = True
-                        reason = f"Geographic ({patient.floor} → Med {best_team})"
-                else:
-                    best_team = best_geo_team
-                    is_geo = True
-                    reason = f"Geographic ({patient.floor} → Med {best_team})"
-            elif geo_teams:
-                # All geo teams at capacity/limits - check if we should go non-geo instead
-                # Find best geo team (least loaded, respecting hard caps)
-                available_geo = [t for t in geo_teams if t not in IMCU_TEAMS or census.get(t, 0) < IMCU_CAP]
+            # Return tuple for stable sorting: (score, current_census, not_geo)
+            return (score, c, 0 if is_geo else 1)
 
-                if available_geo:
-                    best_geo = min(available_geo, key=lambda t: census.get(t, 0))
-                    best_geo_census = census.get(best_geo, 0)
+        def is_eligible(t: int) -> bool:
+            """Check if team can accept patients (hard constraints)."""
+            # IMCU hard cap
+            if t in IMCU_TEAMS and census.get(t, 0) >= IMCU_CAP:
+                return False
+            return True
 
-                    # Find best non-geo, non-IMCU REGULAR team (exclude overflow teams from balance comparison)
-                    non_imcu_non_geo = [t for t in regular_open_teams if t not in IMCU_TEAMS and t not in geo_teams]
-                    if non_imcu_non_geo:
-                        best_non_geo = min(non_imcu_non_geo, key=lambda t: census.get(t, 0))
-                        best_non_geo_census = census.get(best_non_geo, 0)
+        # Get eligible teams, preferring regular teams over overflow
+        # First try: regular teams under soft cap
+        candidates = [t for t in regular_open_teams if is_eligible(t) and census.get(t, 0) < SOFT_CAP]
 
-                        # If geo team is way higher than non-geo, prefer balance over geography
-                        # "Way higher" = 3+ more patients
-                        if best_geo_census >= best_non_geo_census + 3:
-                            best_team = best_non_geo
-                            is_geo = False
-                            reason = f"Balance override ({patient.floor} geo full, Med {best_team} lower census)"
-                        else:
-                            best_team = best_geo
-                            is_geo = True
-                            reason = f"Geographic (over soft cap, {patient.floor} → Med {best_team})"
-                    else:
-                        best_team = best_geo
-                        is_geo = True
-                        reason = f"Geographic (equity override, {patient.floor} → Med {best_team})"
+        # If no regular teams under soft cap, try overflow teams
+        if not candidates:
+            overflow_open = [t for t in OVERFLOW_TEAMS if t in open_teams]
+            candidates = [t for t in overflow_open if is_eligible(t) and census.get(t, 0) < SOFT_CAP]
 
-        if best_team is None:
-            # No geographic match or all geo teams full/over cap
-            # For Boyer overflow, any team is fine - but prefer REGULAR teams over overflow (14, 15)
-            non_imcu_regular = [t for t in regular_open_teams if t not in IMCU_TEAMS]
-            non_imcu_overflow = [t for t in OVERFLOW_TEAMS if t in open_teams and t not in IMCU_TEAMS]
+        # If still none, allow regular teams over soft cap
+        if not candidates:
+            candidates = [t for t in regular_open_teams if is_eligible(t)]
 
-            # First try regular teams under soft cap
-            regular_under_cap = [t for t in non_imcu_regular if census.get(t, 0) < SOFT_CAP]
-            if regular_under_cap:
-                best_team = min(regular_under_cap, key=lambda t: census.get(t, 0))
-            elif non_imcu_overflow:
-                # All regular teams at/over soft cap - NOW use overflow teams
-                overflow_under_cap = [t for t in non_imcu_overflow if census.get(t, 0) < SOFT_CAP]
-                if overflow_under_cap:
-                    best_team = min(overflow_under_cap, key=lambda t: census.get(t, 0))
-                elif non_imcu_regular:
-                    # Overflow also at cap, go back to regular teams
-                    best_team = min(non_imcu_regular, key=lambda t: census.get(t, 0))
-                else:
-                    best_team = min(non_imcu_overflow, key=lambda t: census.get(t, 0))
-            elif non_imcu_regular:
-                # No overflow teams open, use regular even if over soft cap
-                best_team = min(non_imcu_regular, key=lambda t: census.get(t, 0))
-            elif open_teams:
-                # All non-IMCU teams closed, use any open team
-                best_team = min(open_teams, key=lambda t: census.get(t, 0))
+        # Last resort: any open team that's eligible
+        if not candidates:
+            candidates = [t for t in open_teams if is_eligible(t)]
+
+        if not candidates:
+            print(f"WARNING: No eligible teams for {patient.raw_location}")
+            continue
+
+        # Pick best team by score
+        best_team = min(candidates, key=team_score)
+        is_geo = best_team in geo_teams
+
+        # Build reason string
+        score_val = team_score(best_team)[0]
+        if is_geo:
+            reason = f"Geographic ({patient.floor} → Med {best_team}, score={score_val:.1f})"
+        else:
+            if patient.floor:
+                reason = f"Balance ({patient.floor} → Med {best_team}, score={score_val:.1f})"
             else:
-                # Shouldn't happen - no teams open at all
-                print(f"WARNING: No open teams available for {patient.raw_location}")
-                continue
+                reason = f"No floor specified (Med {best_team}, score={score_val:.1f})"
 
-            is_geo = False
-            if patient.floor == 'BOYER':
-                reason = f"Boyer overflow (Med 12 full), lowest census"
-            elif patient.floor:
-                reason = f"No geographic capacity for {patient.floor}, lowest census"
-            else:
-                reason = f"No floor specified, lowest census"
-
-        # Update census and new assignment count
+        # Update tracking
         census[best_team] = census.get(best_team, 0) + 1
         new_assignments[best_team] += 1
 
@@ -429,6 +405,7 @@ def get_patients_input() -> list[Patient]:
     print("=" * 60)
     print("Enter patient locations one per line.")
     print("Format: room number or floor (e.g., '512', '5E-512', '7W')")
+    print("Append * for IMCU placement (e.g., '614*' = room 614 going to IMCU)")
     print("Type 'done' when finished.")
     print()
 
@@ -446,6 +423,12 @@ def get_patients_input() -> list[Patient]:
         if not location:
             continue
 
+        # Check for IMCU override (trailing *)
+        is_imcu_override = False
+        if location.endswith('*'):
+            is_imcu_override = True
+            location = location[:-1]
+
         # Normalize for duplicate detection (uppercase, remove trailing letters)
         location_key = location.upper().strip()
 
@@ -457,18 +440,24 @@ def get_patients_input() -> list[Patient]:
 
         seen_locations.add(location_key)
 
-        floor = normalize_floor(location)
+        # Set floor - IMCU override takes precedence
+        if is_imcu_override:
+            floor = 'IMCU'
+        else:
+            floor = normalize_floor(location)
+
         patients.append(Patient(
             identifier=f"Pt{count}",
             floor=floor,
-            raw_location=location
+            raw_location=location + ('*' if is_imcu_override else '')
         ))
 
         if floor:
             geo_teams = get_geographic_teams(floor)
             if geo_teams:
                 teams_str = ', '.join(f"Med {t}" for t in geo_teams)
-                print(f"         → {floor} (geographic: {teams_str})")
+                imcu_note = " [IMCU priority]" if is_imcu_override else ""
+                print(f"         → {floor} (geographic: {teams_str}){imcu_note}")
             else:
                 print(f"         → {floor} (any team)")
         else:
@@ -567,9 +556,14 @@ def run_interactive():
     print("GEOGRAPHIC PATIENT PLACEMENT OPTIMIZER")
     print("=" * 60)
     print()
-    print("This tool recommends optimal team assignments based on:")
-    print("  • Geographic match (patient floor → team floors)")
-    print("  • Census balancing (distribute evenly)")
+    print("Scoring: score = census + redis + penalty")
+    print(f"  CENSUS_WEIGHT = {CENSUS_WEIGHT}")
+    print(f"  REDIS_WEIGHT  = {REDIS_WEIGHT}")
+    print(f"  GEO_PENALTY   = {GEO_PENALTY} (regular floors)")
+    print(f"  IMCU_PENALTY  = {IMCU_PENALTY} (3W/IMCU patients)")
+    print()
+    print("Patient order: 3W/IMCU (NEED) → 3E (PREFER) → other geo → outliers")
+    print("Lower score wins. 3W/IMCU patients strongly prefer Med 1-3.")
 
     # Get inputs
     census, closed_teams = get_census_input()
