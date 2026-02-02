@@ -213,31 +213,26 @@ def get_patient_priority(patient: Patient) -> tuple:
     Get sort priority for a patient. Lower = processed first.
 
     Order:
-    1. 3W/IMCU patients (NEED Med 1-3)
-    2. 3E patients (PREFER Med 1-3)
-    3. Outliers (ED, unknown) - balance census first
-    4. Other geographic patients - go to their floors
+    0. 3W/IMCU/* patients (NEED Med 1-3, can take 10th slot)
+    1. Outliers (ED, unknown) - balance census first
+    2. 3E + other geographic patients (3E prefers 1-3 but can't take 10th slot)
     """
     floor = patient.floor
     if not floor:
         # Outliers go BEFORE regular geo patients to balance census
-        return (2, 'ZZZ', patient.identifier)
+        return (1, 'ZZZ', patient.identifier)
 
     geo_teams = get_geographic_teams(floor)
     if not geo_teams:
         # Unknown floor = outlier
-        return (2, floor, patient.identifier)
+        return (1, floor, patient.identifier)
 
-    # 3W and IMCU - NEED to go to Med 1-3
+    # 3W and IMCU (includes * patients) - NEED to go to Med 1-3
     if floor in ['3W', 'IMCU']:
         return (0, floor, patient.identifier)
 
-    # 3E - PREFER Med 1-3 but can go elsewhere
-    if floor == '3E':
-        return (1, floor, patient.identifier)
-
-    # Other geographic floors - process AFTER outliers
-    return (3, floor, patient.identifier)
+    # 3E and other geographic floors - process AFTER outliers
+    return (2, floor, patient.identifier)
 
 
 def optimize_placements(
@@ -255,8 +250,8 @@ def optimize_placements(
 
     Lower score = better assignment.
 
-    Patient order: 3W/IMCU (NEED) → 3E (PREFER) → outliers (balance) → other geo.
-    Outliers placed before geo patients ensures low-census teams get filled first.
+    Patient order: 3W/IMCU/* (NEED) → outliers (balance) → 3E + other geo.
+    IMCU teams at census 9 reserve the 10th slot for IMCU patients only.
 
     Hard constraints:
     1. Never assign to closed teams
@@ -272,7 +267,7 @@ def optimize_placements(
     open_teams = [t for t in ALL_TEAMS if t not in closed_teams]
     regular_open_teams = [t for t in open_teams if t not in OVERFLOW_TEAMS]
 
-    # Sort patients: 3W/IMCU first, then 3E, then outliers, then other geo
+    # Sort patients: 3W/IMCU/* first, then outliers, then 3E + other geo
     patients_sorted = sorted(patients, key=get_patient_priority)
 
     for patient in patients_sorted:
@@ -308,9 +303,14 @@ def optimize_placements(
 
         def is_eligible(t: int) -> bool:
             """Check if team can accept patients (hard constraints)."""
-            # IMCU hard cap
-            if t in IMCU_TEAMS and census.get(t, 0) >= IMCU_CAP:
-                return False
+            if t in IMCU_TEAMS:
+                current = census.get(t, 0)
+                # Hard cap at 10
+                if current >= IMCU_CAP:
+                    return False
+                # Reserve 10th slot for IMCU patients only (3W, IMCU, or * suffix)
+                if current == IMCU_CAP - 1 and patient.floor not in ['3W', 'IMCU']:
+                    return False
             return True
 
         # Get eligible teams, preferring regular teams over overflow
@@ -571,8 +571,8 @@ def run_interactive():
     print(f"  GEO_PENALTY   = {GEO_PENALTY} (regular floors)")
     print(f"  IMCU_PENALTY  = {IMCU_PENALTY} (3W/IMCU patients)")
     print()
-    print("Patient order: 3W/IMCU (NEED) → 3E (PREFER) → outliers → other geo")
-    print("Outliers placed before geo to fill low-census teams first.")
+    print("Patient order: 3W/IMCU/* (NEED) → outliers → 3E + other geo")
+    print("IMCU teams at 9 reserve 10th slot for IMCU patients only.")
     print("Lower score wins. 3W/IMCU patients strongly prefer Med 1-3.")
 
     # Get inputs
