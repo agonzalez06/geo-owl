@@ -294,16 +294,18 @@ def get_patient_priority(patient: Patient) -> tuple:
     Order:
     1. 3W/IMCU patients (NEED Med 1-3)
     2. 3E patients (PREFER Med 1-3)
-    3. Other geographic patients
-    4. Non-geographic patients (ED, unknown floor)
+    3. Outliers (ED, unknown) - balance census first
+    4. Other geographic patients - go to their floors
     """
     floor = patient.floor
     if not floor:
-        return (3, 'ZZZ', patient.identifier)
+        # Outliers go BEFORE regular geo patients to balance census
+        return (2, 'ZZZ', patient.identifier)
 
     geo_teams = get_geographic_teams(floor)
     if not geo_teams:
-        return (3, floor, patient.identifier)
+        # Unknown floor = outlier
+        return (2, floor, patient.identifier)
 
     # 3W and IMCU - NEED to go to Med 1-3
     if floor in ['3W', 'IMCU']:
@@ -313,8 +315,8 @@ def get_patient_priority(patient: Patient) -> tuple:
     if floor == '3E':
         return (1, floor, patient.identifier)
 
-    # Other geographic floors
-    return (2, floor, patient.identifier)
+    # Other geographic floors - process AFTER outliers
+    return (3, floor, patient.identifier)
 
 
 def optimize_placements(
@@ -332,7 +334,8 @@ def optimize_placements(
 
     Lower score = better assignment.
 
-    Patient order: 3W/IMCU first (NEED), then 3E (PREFER), then other geo, then outliers.
+    Patient order: 3W/IMCU (NEED) → 3E (PREFER) → outliers (balance) → other geo.
+    Outliers placed before geo patients ensures low-census teams get filled first.
     """
     assignments = []
     census = current_census.copy()
@@ -342,7 +345,7 @@ def optimize_placements(
     open_teams = [t for t in ALL_TEAMS if t not in closed_teams]
     regular_open_teams = [t for t in open_teams if t not in OVERFLOW_TEAMS]
 
-    # Sort patients: 3W/IMCU first, then 3E, then other geo, then outliers
+    # Sort patients: 3W/IMCU first, then 3E, then outliers, then other geo
     patients_sorted = sorted(patients, key=get_patient_priority)
 
     for patient in patients_sorted:
@@ -362,6 +365,12 @@ def optimize_placements(
             score = (c * CENSUS_WEIGHT) + (r * REDIS_WEIGHT)
             if not is_geo:
                 score += non_geo_penalty
+
+            # Penalty for piling on: if this team has 2+ redis and others have 0
+            if r >= 2:
+                teams_with_zero = [tm for tm in regular_open_teams if new_assignments[tm] == 0]
+                if teams_with_zero:
+                    score += 2.0  # Discourage giving 3rd+ patient when others have none
 
             return (score, c, 0 if is_geo else 1)
 
@@ -933,14 +942,15 @@ with tab_nights:
                     by_team[a.team].append((a.patient.raw_location, a.patient.admitted_by))
 
                 epic_lines = ["Good Morning! Here are today's redis:"]
-                # Teams with census but not accepting redis
-                no_redis_teams = set(t for t in nights_closed_teams if nights_census.get(t, 0) > 0)
-                # All teams to show (either got assignments or have census but no redis)
-                all_teams = sorted(set(by_team.keys()) | no_redis_teams)
-                for team in all_teams:
+                # Show all teams except closed ones (closed = not accepting AND zero census)
+                truly_closed = set(t for t in nights_closed_teams if nights_census.get(t, 0) == 0)
+                teams_to_show = [t for t in ALL_TEAMS if t not in truly_closed]
+                for team in teams_to_show:
                     if team in by_team:
                         patient_strs = [f"{room} ({doc})" for room, doc in by_team[team]]
                         epic_lines.append(f"Med {team}: {', '.join(patient_strs)}")
+                    elif team in nights_closed_teams:
+                        epic_lines.append(f"Med {team}: no redis (not accepting)")
                     else:
                         epic_lines.append(f"Med {team}: no redis")
 
