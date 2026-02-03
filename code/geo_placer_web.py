@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+import yaml
 
 try:
     import pytesseract
@@ -664,7 +665,7 @@ Room convention: X01-X20 = West, X30-X50 = East
     st.code(ref_text, language=None)
 
 # Main tabs
-tab_nights, tab_shuffle, tab_anc = st.tabs(["Overnight Redis", "Monday Shuffle", "ANC Sheet"])
+tab_nights, tab_shuffle, tab_board, tab_anc = st.tabs(["Overnight Redis", "Monday Shuffle", "Assignment Board (Beta)", "ANC Sheet"])
 
 # =============================================================================
 # TAB 1: NIGHTS (Overnight Placement)
@@ -1324,6 +1325,188 @@ with tab_shuffle:
 # TAB 3: ANC SHEET (Password Protected)
 # =============================================================================
 
+def load_anc_config() -> dict:
+    config_path = Path(__file__).parent / "anc_config.yaml"
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def get_hospital_day() -> datetime:
+    now = datetime.now()
+    if now.hour < 7:
+        return now - timedelta(days=1)
+    return now
+
+
+def get_day_config(config: dict, day_name: str) -> dict:
+    return config.get(day_name, {})
+
+
+def build_capped_set(team_totals: dict[str, int], cap: int) -> set[str]:
+    if cap is None:
+        return set()
+    return {t for t, total in team_totals.items() if total >= cap}
+
+
+def next_team_for_assignment(order: list[str], index: int, capped: set[str], capped_behavior: str) -> tuple[str, int, str]:
+    if index >= len(order):
+        return "T", index + 1, "Order exhausted -> Med T"
+
+    team = order[index]
+    if team == "T":
+        return "T", index + 1, "Med T slot"
+
+    if team in capped:
+        if capped_behavior == "Route to Med T":
+            return "T", index + 1, f"{team} capped -> Med T"
+        # Skip capped teams
+        for j in range(index + 1, len(order)):
+            candidate = order[j]
+            if candidate == "T":
+                return "T", j + 1, "Med T slot"
+            if candidate not in capped:
+                return candidate, j + 1, f"Skipped capped teams -> {candidate}"
+        return "T", len(order) + 1, "All remaining teams capped -> Med T"
+
+    return team, index + 1, f"Scheduled team {team}"
+
+
+# =============================================================================
+# TAB 3: ASSIGNMENT BOARD (BETA)
+# =============================================================================
+
+with tab_board:
+    st.subheader("Assignment Board (Beta)")
+    st.caption("Experimental: cap-aware assignment board. Does not affect ANC sheet generation.")
+
+    config = load_anc_config()
+    hospital_day = get_hospital_day()
+    day_name = hospital_day.strftime('%A')
+    day_cfg = get_day_config(config, day_name)
+
+    if not day_cfg:
+        st.error(f"No configuration found for {day_name} in anc_config.yaml.")
+    else:
+        shift_col, cap_col, behavior_col = st.columns([1, 1, 1])
+        with shift_col:
+            shift = st.selectbox("Shift", ["Day", "Evening"], index=0, key="board_shift")
+        with cap_col:
+            teaching_cap = st.number_input("Teaching cap (A-J)", min_value=1, max_value=30, value=16, key="board_teaching_cap")
+        with behavior_col:
+            capped_behavior = st.selectbox(
+                "If scheduled team capped",
+                ["Route to Med T", "Skip capped teams"],
+                index=0,
+                key="board_capped_behavior"
+            )
+
+        order = day_cfg.get("day_order", []) if shift == "Day" else day_cfg.get("evening_order", [])
+        order = [str(x).strip() for x in order if str(x).strip()]
+
+        st.markdown("### Admission Order")
+        if order:
+            st.code(" → ".join(order) + (" → T[BAT]..." if shift == "Evening" else ""), language=None)
+        else:
+            st.warning("No order configured for this shift.")
+
+        st.markdown("### Starting Census")
+        teams = list("ABCDEFGHIJ")
+        start_cols = st.columns(5)
+        for i, team in enumerate(teams):
+            with start_cols[i % 5]:
+                st.number_input(f"Med {team}", min_value=0, max_value=40, value=0, key=f"board_start_{team}")
+        st.number_input("Med T", min_value=0, max_value=60, value=0, key="board_start_T")
+
+        if "board_assignments" not in st.session_state:
+            st.session_state.board_assignments = []
+            st.session_state.board_order_index = 0
+            st.session_state.board_day = day_name
+            st.session_state.board_shift_prev = shift
+
+        if st.session_state.board_day != day_name or st.session_state.board_shift_prev != shift:
+            st.session_state.board_assignments = []
+            st.session_state.board_order_index = 0
+            st.session_state.board_day = day_name
+            st.session_state.board_shift_prev = shift
+
+        start_totals = {t: st.session_state.get(f"board_start_{t}", 0) for t in teams}
+        start_totals["T"] = st.session_state.get("board_start_T", 0)
+
+        assigned_counts = defaultdict(int)
+        for a in st.session_state.board_assignments:
+            assigned_counts[a["team"]] += 1
+
+        totals = {t: start_totals.get(t, 0) + assigned_counts.get(t, 0) for t in start_totals}
+        capped = build_capped_set({t: totals[t] for t in teams}, teaching_cap)
+
+        st.markdown("### Add Admission")
+        add_col1, add_col2, add_col3, add_col4 = st.columns([2, 2, 1, 1])
+        with add_col1:
+            patient_label = st.text_input("Patient / room", key="board_patient_label")
+        with add_col2:
+            origin_label = st.text_input("Origin (optional)", key="board_origin_label")
+        with add_col3:
+            assign_clicked = st.button("Assign Next", type="primary")
+        with add_col4:
+            reset_clicked = st.button("Reset Board")
+
+        if reset_clicked:
+            st.session_state.board_assignments = []
+            st.session_state.board_order_index = 0
+            st.rerun()
+
+        if assign_clicked:
+            team, next_index, reason = next_team_for_assignment(
+                order=order,
+                index=st.session_state.board_order_index,
+                capped=capped,
+                capped_behavior=capped_behavior
+            )
+            st.session_state.board_order_index = next_index
+            st.session_state.board_assignments.append({
+                "patient": patient_label.strip() or "(blank)",
+                "origin": origin_label.strip(),
+                "team": team,
+                "reason": reason,
+                "time": datetime.now().strftime("%H:%M")
+            })
+            st.session_state.board_patient_label = ""
+            st.session_state.board_origin_label = ""
+            st.rerun()
+
+        st.markdown("### Team Status")
+        status_lines = []
+        for team in teams + ["T"]:
+            total = totals.get(team, 0)
+            cap_text = f"CAP {teaching_cap}" if team in teams else ""
+            if team in capped:
+                status_lines.append(f"{team}: {total} (CAPPED) {cap_text}".strip())
+            else:
+                status_lines.append(f"{team}: {total} {cap_text}".strip())
+        st.code("\n".join(status_lines), language=None)
+
+        if st.session_state.board_assignments:
+            st.markdown("### Assignments")
+            rows = []
+            for i, a in enumerate(st.session_state.board_assignments, 1):
+                rows.append({
+                    "#": i,
+                    "Time": a["time"],
+                    "Patient": a["patient"],
+                    "Origin": a["origin"],
+                    "Team": a["team"],
+                    "Reason": a["reason"],
+                })
+            st.table(rows)
+
+        st.markdown("### Import from Night Sheet (Coming Soon)")
+        st.button("Import Night Sheet", disabled=True)
+
+
+# =============================================================================
+# TAB 4: ANC SHEET (Password Protected)
+# =============================================================================
+
 with tab_anc:
     st.subheader("ANC Sheet")
 
@@ -1373,11 +1556,7 @@ with tab_anc:
         st.error("ANC generator not available. Check that anc_generator.py is in the same directory.")
     else:
         # Hospital days run 7am-7am, so before 7am we're still in "yesterday's" day
-        now = datetime.now()
-        if now.hour < 7:
-            today = now - timedelta(days=1)
-        else:
-            today = now
+        today = get_hospital_day()
         today_str = today.strftime('%Y-%m-%d')
 
         # Check if we need to generate (new day or not yet generated)

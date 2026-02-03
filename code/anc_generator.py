@@ -18,6 +18,7 @@ import os
 import subprocess
 import tempfile
 import logging
+import os
 import time
 import functools
 from pathlib import Path
@@ -29,34 +30,56 @@ import yaml
 # =============================================================================
 
 def setup_logging() -> logging.Logger:
-    """Set up logging to file and console."""
-    log_dir = Path(__file__).parent / "logs"
-    log_dir.mkdir(exist_ok=True)
-
-    # Log file with date
-    log_file = log_dir / f"anc_generator_{datetime.now().strftime('%Y-%m-%d')}.log"
-
+    """Set up logging to file and console (with optional redaction)."""
     # Create logger
     logger = logging.getLogger('anc_generator')
     logger.setLevel(logging.DEBUG)
 
-    # File handler - detailed logs
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(funcName)s - %(message)s'
-    )
-    file_handler.setFormatter(file_formatter)
+    redact_rooms = os.getenv('ANC_LOG_REDACT_ROOMS', 'true').lower() in ('1', 'true', 'yes', 'on')
+    file_logging_enabled = os.getenv('ANC_LOG_FILE', 'false').lower() in ('1', 'true', 'yes', 'on')
+
+    class RedactFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            if not redact_rooms:
+                return True
+            try:
+                msg = record.getMessage()
+                # Redact common room formats: 3-4 digits with optional letter suffix (e.g., 312, 545B, 877, 1204A)
+                redacted = re.sub(r'\b\d{3,4}[A-Z]?\b', '[ROOM]', msg)
+                if redacted != msg:
+                    record.msg = redacted
+                    record.args = ()
+            except Exception:
+                # Fail open: never block logging
+                return True
+            return True
+
+    if file_logging_enabled:
+        log_dir = Path(__file__).parent / "logs"
+        log_dir.mkdir(exist_ok=True)
+
+        # Log file with date
+        log_file = log_dir / f"anc_generator_{datetime.now().strftime('%Y-%m-%d')}.log"
+
+        # File handler - detailed logs
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.DEBUG)
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(funcName)s - %(message)s'
+        )
+        file_handler.setFormatter(file_formatter)
+        file_handler.addFilter(RedactFilter())
+        logger.addHandler(file_handler)
 
     # Console handler - less verbose
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_formatter = logging.Formatter('%(levelname)s: %(message)s')
     console_handler.setFormatter(console_formatter)
+    console_handler.addFilter(RedactFilter())
 
     # Only add handlers if not already added
     if not logger.handlers:
-        logger.addHandler(file_handler)
         logger.addHandler(console_handler)
 
     return logger
