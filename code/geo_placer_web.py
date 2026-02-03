@@ -1387,21 +1387,18 @@ with tab_board:
     if not day_cfg:
         st.error(f"No configuration found for {day_name} in anc_config.yaml.")
     else:
-        left_col, right_col = st.columns([3, 1])
-
-        with left_col:
-            shift_col, cap_col, behavior_col = st.columns([1, 1, 1])
-            with shift_col:
-                shift = st.selectbox("Shift", ["Day", "Evening"], index=0, key="board_shift")
-            with cap_col:
-                teaching_cap = st.number_input("Teaching cap (A-J)", min_value=1, max_value=30, value=16, key="board_teaching_cap")
-            with behavior_col:
-                capped_behavior = st.selectbox(
-                    "If scheduled team capped",
-                    ["Route to Med T", "Skip capped teams"],
-                    index=0,
-                    key="board_capped_behavior"
-                )
+        shift_col, cap_col, behavior_col = st.columns([1, 1, 1])
+        with shift_col:
+            shift = st.selectbox("Shift", ["Day", "Evening"], index=0, key="board_shift")
+        with cap_col:
+            teaching_cap = st.number_input("Teaching cap (A-J)", min_value=1, max_value=30, value=16, key="board_teaching_cap")
+        with behavior_col:
+            capped_behavior = st.selectbox(
+                "If scheduled team capped",
+                ["Route to Med T", "Skip capped teams"],
+                index=0,
+                key="board_capped_behavior"
+            )
 
         order = day_cfg.get("day_order", []) if shift == "Day" else day_cfg.get("evening_order", [])
         order = [str(x).strip() for x in order if str(x).strip()]
@@ -1432,11 +1429,17 @@ with tab_board:
         start_totals = {t: st.session_state.get(f"board_start_{t}", 0) for t in teams}
         start_totals["T"] = st.session_state.get("board_start_T", 0)
 
+        redis_totals = {t: st.session_state.get(f"board_redis_{t}", 0) for t in teams}
+        redis_totals["T"] = st.session_state.get("board_redis_T", 0)
+
         assigned_counts = defaultdict(int)
         for a in st.session_state.board_assignments:
             assigned_counts[a["team"]] += 1
 
-        totals = {t: start_totals.get(t, 0) + assigned_counts.get(t, 0) for t in start_totals}
+        totals = {
+            t: start_totals.get(t, 0) + redis_totals.get(t, 0) + assigned_counts.get(t, 0)
+            for t in start_totals
+        }
         capped = build_capped_set({t: totals[t] for t in teams}, teaching_cap)
 
         def team_color(team: str) -> str:
@@ -1449,84 +1452,29 @@ with tab_board:
                 return f"<span style='color:{color}; font-weight:700'>{label}</span>"
             return f"<span style='color:{color}'>{label}</span>"
 
-        with left_col:
-            st.markdown("### Admission Order")
-            if order:
-                current_idx = st.session_state.board_order_index
-                parts = []
-                for i, team in enumerate(order):
-                    bold = (i == current_idx)
-                    parts.append(format_team_label(team, bold=bold))
-                if shift == "Evening":
-                    parts.append("<span style='color:#1E5AA8'>T[BAT]...</span>")
-                st.markdown(" &rarr; ".join(parts), unsafe_allow_html=True)
-            else:
-                st.warning("No order configured for this shift.")
+        rules_text = day_cfg.get("notes", "")
+        if rules_text:
+            st.markdown("### Rules")
+            st.info(rules_text)
 
-        with left_col:
-            st.markdown("### Add Admission")
-            add_col1, add_col2, add_col3, add_col4 = st.columns([2, 2, 1, 1])
-            with add_col1:
-                patient_label = st.text_input("Patient / room", key="board_patient_label")
-            with add_col2:
-                origin_label = st.text_input("Origin (optional)", key="board_origin_label")
-            with add_col3:
-                assign_clicked = st.button("Assign Next", type="primary")
-            with add_col4:
-                reset_clicked = st.button("Reset Board")
+        census_col, work_col, add_col, order_col = st.columns([1.4, 2.2, 1.6, 1.2])
 
-            if reset_clicked:
-                st.session_state.board_assignments = []
-                st.session_state.board_order_index = 0
-                st.rerun()
-
-            if assign_clicked:
-                team, next_index, reason = next_team_for_assignment(
-                    order=order,
-                    index=st.session_state.board_order_index,
-                    capped=capped,
-                    capped_behavior=capped_behavior
-                )
-                st.session_state.board_order_index = next_index
-                st.session_state.board_assignments.append({
-                    "patient": patient_label.strip() or "(blank)",
-                    "origin": origin_label.strip(),
-                    "team": team,
-                    "reason": reason,
-                    "time": datetime.now().strftime("%H:%M")
-                })
-                st.session_state.board_clear_inputs = True
-                st.rerun()
-
-            if st.session_state.board_assignments:
-                st.markdown("### Assignments")
-                rows = []
-                for i, a in enumerate(st.session_state.board_assignments, 1):
-                    rows.append({
-                        "#": i,
-                        "Time": a["time"],
-                        "Patient": a["patient"],
-                        "Origin": a["origin"],
-                        "Team": a["team"],
-                        "Reason": a["reason"],
-                    })
-                st.table(rows)
-
-            st.markdown("### Import from Night Sheet (Coming Soon)")
-            st.button("Import Night Sheet", disabled=True)
-
-        with right_col:
+        with census_col:
             st.markdown("### Census")
-            header = st.columns([1.1, 1, 1])
+            header = st.columns([1.2, 1, 1, 1, 1])
             with header[0]:
                 st.markdown("**Team**")
             with header[1]:
                 st.markdown("**Start**")
             with header[2]:
+                st.markdown("**Redis**")
+            with header[3]:
+                st.markdown("**New**")
+            with header[4]:
                 st.markdown("**Now**")
 
             for team in teams:
-                row = st.columns([1.1, 1, 1])
+                row = st.columns([1.2, 1, 1, 1, 1])
                 with row[0]:
                     label = format_team_label(team, bold=(team in capped))
                     st.markdown(label, unsafe_allow_html=True)
@@ -1540,11 +1488,24 @@ with tab_board:
                         label_visibility="collapsed"
                     )
                 with row[2]:
+                    st.number_input(
+                        "",
+                        min_value=0,
+                        max_value=40,
+                        value=0,
+                        key=f"board_redis_{team}",
+                        label_visibility="collapsed"
+                    )
+                with row[3]:
+                    st.markdown(f"**{assigned_counts.get(team, 0)}**")
+                with row[4]:
                     total = totals.get(team, 0)
-                    capped_text = " CAPPED" if team in capped else ""
-                    st.markdown(f"**{total}**{capped_text}")
+                    if team in capped:
+                        st.markdown(f"<span style='color:#9D2235; font-weight:700'>{total}</span>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"**{total}**")
 
-            row = st.columns([1.1, 1, 1])
+            row = st.columns([1.2, 1, 1, 1, 1])
             with row[0]:
                 st.markdown(format_team_label("T"), unsafe_allow_html=True)
             with row[1]:
@@ -1557,8 +1518,84 @@ with tab_board:
                     label_visibility="collapsed"
                 )
             with row[2]:
+                st.number_input(
+                    "",
+                    min_value=0,
+                    max_value=60,
+                    value=0,
+                    key="board_redis_T",
+                    label_visibility="collapsed"
+                )
+            with row[3]:
+                st.markdown(f"**{assigned_counts.get('T', 0)}**")
+            with row[4]:
                 total = totals.get("T", 0)
                 st.markdown(f"**{total}**")
+
+        with work_col:
+            if st.session_state.board_assignments:
+                st.markdown("### Assignments")
+                rows = []
+                for a in st.session_state.board_assignments:
+                    rows.append({
+                        "Time": a["time"],
+                        "Patient": a["patient"],
+                        "Origin": a["origin"],
+                        "Team": a["team"],
+                        "Reason": "Scheduled",
+                    })
+                st.table(rows)
+
+        with add_col:
+            st.markdown("### Add Admission")
+            add_col1, add_col2, add_col3, add_col4 = st.columns([2, 2, 1, 1])
+            with add_col1:
+                patient_label = st.text_input("Patient / room", key="board_patient_label")
+            with add_col2:
+                origin_label = st.text_input("Origin (optional)", key="board_origin_label")
+            with add_col3:
+                assign_clicked = st.button("Assign Next", type="primary", use_container_width=True)
+            with add_col4:
+                reset_clicked = st.button("Reset Board", use_container_width=True)
+
+            if reset_clicked:
+                st.session_state.board_assignments = []
+                st.session_state.board_order_index = 0
+                st.rerun()
+
+            if assign_clicked:
+                team, next_index, _ = next_team_for_assignment(
+                    order=order,
+                    index=st.session_state.board_order_index,
+                    capped=capped,
+                    capped_behavior=capped_behavior
+                )
+                st.session_state.board_order_index = next_index
+                st.session_state.board_assignments.append({
+                    "patient": patient_label.strip() or "(blank)",
+                    "origin": origin_label.strip(),
+                    "team": team,
+                    "reason": "Scheduled",
+                    "time": datetime.now().strftime("%H:%M")
+                })
+                st.session_state.board_clear_inputs = True
+                st.rerun()
+
+        with order_col:
+            st.markdown("### Admission Order")
+            if order:
+                current_idx = st.session_state.board_order_index
+                lines = []
+                for i, team in enumerate(order):
+                    bold = (i == current_idx)
+                    label = format_team_label(team, bold=bold)
+                    arrow = " &darr;" if i < len(order) - 1 else ""
+                    lines.append(f"{label}{arrow}")
+                if shift == "Evening":
+                    lines.append("<span style='color:#1E5AA8'>T[BAT]...</span>")
+                st.markdown("<br>".join(lines), unsafe_allow_html=True)
+            else:
+                st.warning("No order configured for this shift.")
 
 
 # =============================================================================
