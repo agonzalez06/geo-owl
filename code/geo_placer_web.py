@@ -1411,11 +1411,17 @@ with tab_board:
 
         st.markdown("### Starting Census")
         teams = list("ABCDEFGHIJ")
-        start_cols = st.columns(5)
-        for i, team in enumerate(teams):
-            with start_cols[i % 5]:
-                st.number_input(f"Med {team}", min_value=0, max_value=40, value=0, key=f"board_start_{team}")
-        st.number_input("Med T", min_value=0, max_value=60, value=0, key="board_start_T")
+        for team in teams:
+            row = st.columns([1, 1])
+            with row[0]:
+                st.markdown(f"**Med {team}**")
+            with row[1]:
+                st.number_input("", min_value=0, max_value=40, value=0, key=f"board_start_{team}", label_visibility="collapsed")
+        row = st.columns([1, 1])
+        with row[0]:
+            st.markdown("**Med T**")
+        with row[1]:
+            st.number_input("", min_value=0, max_value=60, value=0, key="board_start_T", label_visibility="collapsed")
 
         if "board_assignments" not in st.session_state:
             st.session_state.board_assignments = []
@@ -1438,6 +1444,14 @@ with tab_board:
 
         totals = {t: start_totals.get(t, 0) + assigned_counts.get(t, 0) for t in start_totals}
         capped = build_capped_set({t: totals[t] for t in teams}, teaching_cap)
+
+        if "board_clear_inputs" not in st.session_state:
+            st.session_state.board_clear_inputs = False
+
+        if st.session_state.board_clear_inputs:
+            st.session_state["board_patient_label"] = ""
+            st.session_state["board_origin_label"] = ""
+            st.session_state.board_clear_inputs = False
 
         st.markdown("### Add Admission")
         add_col1, add_col2, add_col3, add_col4 = st.columns([2, 2, 1, 1])
@@ -1470,8 +1484,7 @@ with tab_board:
                 "reason": reason,
                 "time": datetime.now().strftime("%H:%M")
             })
-            st.session_state.board_patient_label = ""
-            st.session_state.board_origin_label = ""
+            st.session_state.board_clear_inputs = True
             st.rerun()
 
         st.markdown("### Team Status")
