@@ -541,19 +541,21 @@ def extract_pager_number(pager_str: str) -> str:
     return ''
 
 @retry_on_failure(max_retries=3, delay=2.0, backoff=2.0)
-def fetch_contact_info(password: str, date: datetime) -> dict[str, str]:
-    """Fetch contact info from Amion report 705 and return name->phone mapping."""
+def fetch_contact_info(password: str, date: datetime = None) -> dict[str, str]:
+    """Fetch contact info from Amion report 705 and return name->phone mapping.
 
+    Note: Omitting date parameters returns ALL staff contacts, which is more complete.
+    Date-filtered requests only return staff scheduled that day with contact info.
+    """
+
+    # Fetch all staff contacts (no date filter) for more complete coverage
     params = {
         'Lo': password,
         'Rpt': '705',
-        'Month': date.month,
-        'Day': date.day,
-        'Year': date.year
     }
 
     url = f"{AMION_BASE_URL}?{urllib.parse.urlencode(params)}"
-    logger.debug(f"Fetching contact info from Amion (Report 705) for {date.strftime('%Y-%m-%d')}")
+    logger.debug(f"Fetching contact info from Amion (Report 705, all staff)")
 
     with urllib.request.urlopen(url, timeout=30) as response:
         content = response.read().decode('utf-8')
@@ -644,11 +646,12 @@ def merge_contact_info(records: list[dict], contacts: dict[str, str]) -> list[di
     """Merge contact info into records where phone is missing."""
     for record in records:
         if not record['phone']:
-            # Check manual overrides first, then API contacts
-            if record['name'] in PHONE_OVERRIDES:
-                record['phone'] = PHONE_OVERRIDES[record['name']]
-            elif record['name'] in contacts:
+            # Amion contacts take precedence (more accurate over time),
+            # fall back to manual overrides if not in Amion
+            if record['name'] in contacts:
                 record['phone'] = contacts[record['name']]
+            elif record['name'] in PHONE_OVERRIDES:
+                record['phone'] = PHONE_OVERRIDES[record['name']]
     return records
 
 def parse_teaching_teams(attending_data: list[dict], resident_data: list[dict]) -> dict[str, TeamAssignment]:

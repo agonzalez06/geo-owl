@@ -26,6 +26,9 @@ teams:
   I: "India"
   J: "Juliet"
 
+# Temporary: force Assignment Board to use a specific day while schedules are built
+board_force_day: "Monday"
+
 # -----------------------------------------------------------------------------
 # GEOGRAPHIC ASSIGNMENTS (from Geo Redistribution Guidelines)
 # These are the floor assignments for each team
@@ -97,6 +100,21 @@ default_floors:
 Monday:
   notes: "Teams I and J excluded - residents off"
   excluded_teams: ["I", "J"]
+  admission_schedule:
+    teaching_open:
+      - "07:00-11:30"
+      - "13:00-17:30"
+    teaching_closed:
+      - "11:30-13:00"
+      - "17:30-19:00"
+    protected_time:
+      - "11:30-13:00"
+    direct_open:
+      - "07:00-16:00"
+      - "16:00-19:00"
+    night_hold:
+      - "18:00-19:00"
+    notes: "Teaching admits 7-5:30; direct care 7-4 + 4-7 twilight; protected time direct care admits; hold 6-7 for night team."
 
   # Day coverage admission order (slots 1-22)
   # Each entry is: team letter or "T" for Med T/BAT

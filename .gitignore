@@ -9,6 +9,7 @@ __pycache__/
 env/
 venv/
 .env
+.venv/
 
 # macOS
 .DS_Store
@@ -19,3 +20,9 @@ logs/
 # Temporary files
 *.tmp
 ~$*
+
+# Outputs (generated)
+outputs/
+
+# Local scripts
+code/schedule_holes.py

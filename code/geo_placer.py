@@ -77,6 +77,7 @@ CENSUS_WEIGHT = 1.0    # Weight for current census
 REDIS_WEIGHT = 1.0     # Weight for new patients (redis) tonight
 GEO_PENALTY = 3.0      # Penalty for non-geographic placement
 IMCU_PENALTY = 10.0    # Higher penalty for 3W/IMCU patients going off-floor (they NEED Med 1-3)
+IMCU_NON_GEO_BONUS = 4.0  # Extra score for non-3W/3E patients going to IMCU teams
 
 # =============================================================================
 # DATA STRUCTURES
@@ -291,6 +292,10 @@ def optimize_placements(
             score = (c * CENSUS_WEIGHT) + (r * REDIS_WEIGHT)
             if not is_geo:
                 score += non_geo_penalty
+
+            # IMCU teams are capped at 10; treat non-3W/3E patients as +4 census
+            if t in IMCU_TEAMS and patient.floor not in ['3W', '3E', 'IMCU']:
+                score += IMCU_NON_GEO_BONUS
 
             # Penalty for piling on: if this team has 2+ redis and others have 0
             if r >= 2:

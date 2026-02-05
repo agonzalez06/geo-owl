@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 import yaml
+from docx import Document
+import pandas as pd
 
 try:
     import pytesseract
@@ -169,6 +171,7 @@ CENSUS_WEIGHT = 1.0
 REDIS_WEIGHT = 1.0
 GEO_PENALTY = 3.0      # Penalty for non-geographic placement
 IMCU_PENALTY = 10.0    # Higher penalty for 3W/IMCU patients going off-floor
+IMCU_NON_GEO_BONUS = 4.0  # Extra score for non-3W/3E patients going to IMCU teams
 
 # Demo data
 DEMO_CENSUS = {
@@ -361,6 +364,10 @@ def optimize_placements(
             score = (c * CENSUS_WEIGHT) + (r * REDIS_WEIGHT)
             if not is_geo:
                 score += non_geo_penalty
+
+            # IMCU teams are capped at 10; treat non-3W/3E patients as +4 census
+            if t in IMCU_TEAMS and patient.floor not in ['3W', '3E', 'IMCU']:
+                score += IMCU_NON_GEO_BONUS
 
             # Penalty for piling on: if this team has 2+ redis and others have 0
             if r >= 2:
@@ -661,6 +668,19 @@ Med 8   8E / 8W
 
 * = IMCU teams (cap: 10)
 Room convention: X01-X20 = West, X30-X50 = East
+
+Teaching Teams (by unit)
+Unit    Teaching Teams
+----    --------------
+3E      Med I & J
+4E      Med I & J
+4W      Any teaching team
+5E/5W   Med A-D
+6E/6W   Any teaching team
+7E/7W   Med E-H
+8E      Med E-H
+9W/Boyer Med I & J
+IMCU    N/A
 """
     st.code(ref_text, language=None)
 
@@ -1342,6 +1362,31 @@ def get_day_config(config: dict, day_name: str) -> dict:
     return config.get(day_name, {})
 
 
+def parse_time_window(window: str) -> tuple[datetime.time, datetime.time]:
+    start_str, end_str = [part.strip() for part in window.split("-")]
+    start = datetime.strptime(start_str, "%H:%M").time()
+    end = datetime.strptime(end_str, "%H:%M").time()
+    return start, end
+
+
+def time_in_windows(now_time: datetime.time, windows: list[str]) -> bool:
+    for window in windows or []:
+        start, end = parse_time_window(window)
+        if start <= now_time < end:
+            return True
+    return False
+
+
+def get_admission_schedule(config: dict, day_name: str) -> tuple[dict, str]:
+    day_cfg = get_day_config(config, day_name)
+    schedule = day_cfg.get("admission_schedule", {}) if day_cfg else {}
+    if not schedule and day_name != "Monday":
+        schedule = config.get("Monday", {}).get("admission_schedule", {})
+        if schedule:
+            return schedule, "Monday"
+    return schedule, day_name
+
+
 def build_capped_set(team_totals: dict[str, int], cap: int) -> set[str]:
     if cap is None:
         return set()
@@ -1371,6 +1416,122 @@ def next_team_for_assignment(order: list[str], index: int, capped: set[str], cap
     return team, index + 1, f"Scheduled team {team}"
 
 
+def get_teaching_segment(order: list[str], start_index: int, teaching_set: set[str]) -> tuple[list[str], int, int]:
+    """Return contiguous teaching segment starting at start_index."""
+    segment = []
+    i = start_index
+    while i < len(order) and order[i] in teaching_set:
+        segment.append(order[i])
+        i += 1
+    return segment, start_index, i
+
+
+def parse_teaching_floors(config: dict) -> dict[str, set[str]]:
+    """Parse teaching team floors from config into sets."""
+    floors = {}
+    raw = config.get("teaching_team_floors", {}) if config else {}
+    for team, val in raw.items():
+        items = [v.strip().upper() for v in str(val).split(",") if v.strip()]
+        floors[team.upper()] = set(items)
+    # Add Boyer/9W to I/J per reference
+    for team in ("I", "J"):
+        floors.setdefault(team, set()).update({"9W", "BOYER"})
+    return floors
+
+
+def teaching_floor_match(team: str, floor: Optional[str], teaching_floors: dict[str, set[str]]) -> bool:
+    if not floor:
+        return False
+    f = floor.upper()
+    if f.endswith("?"):
+        base = f[:-1]
+        candidates = {f"{base}E", f"{base}W"}
+    else:
+        candidates = {f}
+    return bool(candidates & teaching_floors.get(team, set()))
+
+
+def normalize_team_key(text: str) -> Optional[str]:
+    if not text:
+        return None
+    t = text.strip().upper()
+    if re.match(r'^[A-J]\\b', t):
+        return t[0]
+    if 'MED T' in t or 'T[BAT]' in t or 'BAT' in t:
+        return 'T'
+    m = re.search(r'MED\\s*(\\d{1,2})', t)
+    if m:
+        return m.group(1)
+    return None
+
+
+@st.cache_data(show_spinner=False)
+def load_anc_contacts_for_date(date_str: str) -> dict[str, tuple[str, str]]:
+    """Load contact map from ANC sheet DOCX for a given date string (YYYY-MM-DD)."""
+    target_date = datetime.strptime(date_str, '%Y-%m-%d')
+    date_fmt = target_date.strftime('%m %d %y %A %B %Y')
+    candidates = [
+        Path(__file__).parent / f"AUTO_{date_fmt} ANC Sheets.docx",
+        Path(__file__).parent.parent / "inputs" / f"{date_fmt} ANC Sheets.docx",
+        Path(__file__).parent.parent / "inputs" / f"{date_fmt} ANC Sheet.docx",
+    ]
+    docx_path = next((p for p in candidates if p.exists()), None)
+    if not docx_path:
+        return {}
+
+    doc = Document(str(docx_path))
+    contact_map: dict[str, tuple[str, str]] = {}
+
+    for table in doc.tables:
+        header_row_idx = None
+        header_cells = []
+        for i, row in enumerate(table.rows):
+            cells = [c.text.strip() for c in row.cells]
+            joined = " | ".join(c.lower() for c in cells)
+            if "team" in joined and "resident" in joined and "phone" in joined:
+                header_row_idx = i
+                header_cells = cells
+                break
+        if header_row_idx is None:
+            continue
+
+        col_map = {}
+        for idx, name in enumerate(header_cells):
+            name_lower = name.lower()
+            if "team" in name_lower:
+                col_map["team"] = idx
+            elif "resident" in name_lower and "phone" not in name_lower:
+                col_map["resident"] = idx
+            elif "resident" in name_lower and "phone" in name_lower:
+                col_map["resident_phone"] = idx
+            elif "attending" in name_lower and "phone" not in name_lower:
+                col_map["attending"] = idx
+            elif "attending" in name_lower and "phone" in name_lower:
+                col_map["attending_phone"] = idx
+
+        if "team" not in col_map:
+            continue
+
+        for row in table.rows[header_row_idx + 1:]:
+            cells = [c.text.strip() for c in row.cells]
+            team_text = cells[col_map["team"]] if col_map["team"] < len(cells) else ""
+            team_key = normalize_team_key(team_text)
+            if not team_key:
+                continue
+
+            resident = cells[col_map.get("resident", -1)] if col_map.get("resident", -1) < len(cells) else ""
+            resident_phone = cells[col_map.get("resident_phone", -1)] if col_map.get("resident_phone", -1) < len(cells) else ""
+            attending = cells[col_map.get("attending", -1)] if col_map.get("attending", -1) < len(cells) else ""
+            attending_phone = cells[col_map.get("attending_phone", -1)] if col_map.get("attending_phone", -1) < len(cells) else ""
+
+            contact_name = resident or attending
+            contact_phone = resident_phone or attending_phone
+            if contact_name or contact_phone:
+                contact_map[team_key] = (contact_name, contact_phone)
+
+    return contact_map
+
+
 # =============================================================================
 # TAB 3: ASSIGNMENT BOARD (BETA)
 # =============================================================================
@@ -1381,56 +1542,66 @@ with tab_board:
 
     config = load_anc_config()
     hospital_day = get_hospital_day()
-    day_name = hospital_day.strftime('%A')
+    day_options = [d for d in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] if d in config]
+    if not day_options:
+        day_options = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    if "board_test_day" not in st.session_state or st.session_state.board_test_day not in day_options:
+        default_day = hospital_day.strftime('%A')
+        desired_day = default_day
+        st.session_state.board_test_day = desired_day if desired_day in day_options else day_options[0]
+    day_name = st.session_state.board_test_day
     day_cfg = get_day_config(config, day_name)
+    admission_schedule, schedule_day = get_admission_schedule(config, day_name)
 
     if not day_cfg:
         st.error(f"No configuration found for {day_name} in anc_config.yaml.")
     else:
-        shift_col, cap_col, behavior_col = st.columns([1, 1, 1])
-        with shift_col:
-            shift = st.selectbox("Shift", ["Day", "Evening"], index=0, key="board_shift")
-        with cap_col:
-            teaching_cap = st.number_input("Teaching cap (A-J)", min_value=1, max_value=30, value=16, key="board_teaching_cap")
-        with behavior_col:
-            capped_behavior = st.selectbox(
-                "If scheduled team capped",
-                ["Route to Med T", "Skip capped teams"],
-                index=0,
-                key="board_capped_behavior"
-            )
+        # Settings removed per request; use defaults
+        shift = "Day"
+        teaching_cap = 16
+        capped_behavior = "Route to Med T"
 
         order = day_cfg.get("day_order", []) if shift == "Day" else day_cfg.get("evening_order", [])
         order = [str(x).strip() for x in order if str(x).strip()]
 
         teams = list("ABCDEFGHIJ")
         teaching_set = set(teams)
+        direct_care_teams = [str(i) for i in range(1, 16)]
+        direct_care_open = {}
 
         if "board_assignments" not in st.session_state:
             st.session_state.board_assignments = []
             st.session_state.board_order_index = 0
             st.session_state.board_day = day_name
             st.session_state.board_shift_prev = shift
+            st.session_state.board_sim_time = hospital_day.replace(hour=7, minute=5, second=0, microsecond=0)
 
         if st.session_state.board_day != day_name or st.session_state.board_shift_prev != shift:
             st.session_state.board_assignments = []
             st.session_state.board_order_index = 0
             st.session_state.board_day = day_name
             st.session_state.board_shift_prev = shift
+            st.session_state.board_sim_time = hospital_day.replace(hour=7, minute=5, second=0, microsecond=0)
 
         if "board_clear_inputs" not in st.session_state:
             st.session_state.board_clear_inputs = False
 
         if st.session_state.board_clear_inputs:
-            st.session_state["board_patient_label"] = ""
-            st.session_state["board_origin_label"] = ""
             st.session_state.board_clear_inputs = False
 
-        start_totals = {t: st.session_state.get(f"board_start_{t}", 0) for t in teams}
-        start_totals["T"] = st.session_state.get("board_start_T", 0)
+        census_teams = teams + direct_care_teams
 
-        redis_totals = {t: st.session_state.get(f"board_redis_{t}", 0) for t in teams}
-        redis_totals["T"] = st.session_state.get("board_redis_T", 0)
+        # Default start values for testing (8-13, with specific IMCU defaults)
+        start_defaults = {}
+        seed_vals = [8, 9, 10, 11, 12, 13]
+        for idx, team in enumerate(census_teams):
+            start_defaults[team] = seed_vals[idx % len(seed_vals)]
+        start_defaults["1"] = 7
+        start_defaults["2"] = 9
+        start_defaults["3"] = 8
+
+        start_totals = {t: st.session_state.get(f"board_start_{t}", start_defaults.get(t, 0)) for t in census_teams}
+        redis_totals = {t: st.session_state.get(f"board_redis_{t}", 0) for t in census_teams}
 
         assigned_counts = defaultdict(int)
         for a in st.session_state.board_assignments:
@@ -1438,52 +1609,311 @@ with tab_board:
 
         totals = {
             t: start_totals.get(t, 0) + redis_totals.get(t, 0) + assigned_counts.get(t, 0)
-            for t in start_totals
+            for t in census_teams
         }
-        capped = build_capped_set({t: totals[t] for t in teams}, teaching_cap)
+        score_totals = {
+            t: start_totals.get(t, 0) + redis_totals.get(t, 0) + (assigned_counts.get(t, 0) * 5)
+            for t in census_teams
+        }
+        sim_time = st.session_state.board_sim_time
+        schedule_time = sim_time.time()
+        teaching_open_windows = admission_schedule.get("teaching_open", []) if admission_schedule else []
+        teaching_closed_windows = admission_schedule.get("teaching_closed", []) if admission_schedule else []
+        protected_windows = admission_schedule.get("protected_time", []) if admission_schedule else []
+        direct_open_windows = admission_schedule.get("direct_open", []) if admission_schedule else []
+        night_hold_windows = admission_schedule.get("night_hold", []) if admission_schedule else []
+
+        teaching_open_now = time_in_windows(schedule_time, teaching_open_windows) if teaching_open_windows else True
+        teaching_closed_now = time_in_windows(schedule_time, teaching_closed_windows)
+        protected_now = time_in_windows(schedule_time, protected_windows)
+        hold_now = time_in_windows(schedule_time, night_hold_windows)
+        direct_open_now = time_in_windows(schedule_time, direct_open_windows) if direct_open_windows else True
+        night_direct_only = not direct_open_now
+        teaching_allowed = teaching_open_now and not teaching_closed_now and not protected_now
+        teaching_order_set = {t for t in order if t in teaching_set}
+        excluded_teaching = {t.strip().upper() for t in day_cfg.get("excluded_teams", [])}
+        teaching_rounds_max = day_cfg.get("teaching_rounds_max", 3)
+        capped_only = build_capped_set({t: totals[t] for t in teams}, teaching_cap)
+        capped = capped_only | excluded_teaching
+        open_teaching_map = {
+            t: (
+                t in teaching_order_set
+                and t not in excluded_teaching
+                and totals.get(t, 0) < teaching_cap
+                and assigned_counts.get(t, 0) < teaching_rounds_max
+                and teaching_allowed
+            )
+            for t in teams
+        }
+
+        teaching_floors = parse_teaching_floors(config)
+
+        if "board_teach_segment_start" not in st.session_state:
+            st.session_state.board_teach_segment_start = None
+            st.session_state.board_teach_segment_used = []
 
         def team_color(team: str) -> str:
             return "#9D2235" if team in teaching_set else "#1E5AA8"
 
         def format_team_label(team: str, bold: bool = False) -> str:
             color = team_color(team)
-            label = f"Med {team}" if team != "T" else "Med T"
+            if team == "T":
+                label = "Direct"
+            elif str(team).isdigit() and str(team) in {"1", "2", "3"}:
+                label = f"Med {team}*"
+            else:
+                label = f"Med {team}"
             if bold:
-                return f"<span style='color:{color}; font-weight:700'>{label}</span>"
-            return f"<span style='color:{color}'>{label}</span>"
+                return f"<span style='color:{color}; font-weight:700; font-size:0.95rem;'>{label}</span>"
+            return f"<span style='color:{color}; font-size:0.95rem;'>{label}</span>"
 
-        rules_text = day_cfg.get("notes", "")
-        if rules_text:
-            st.markdown("### Rules")
-            st.info(rules_text)
+        def is_geo_assignment(team: str, floor: Optional[str]) -> Optional[bool]:
+            if not floor:
+                return None
+            if team in teaching_set:
+                return teaching_floor_match(team, floor, teaching_floors)
+            if str(team).isdigit():
+                return int(team) in get_geographic_teams(floor)
+            return None
 
-        census_col, work_col, add_col, order_col = st.columns([1.4, 2.2, 1.6, 1.2])
+        def team_label_text(team: str) -> str:
+            if team == "T":
+                return "Direct"
+            if str(team).isdigit() and str(team) in {"1", "2", "3"}:
+                return f"Med {team}*"
+            return f"Med {team}"
+
+        def status_badge(text: str, color: str, font_size: str = "1rem", font_weight: str = "400") -> str:
+            return (
+                f"<span style='display:inline-block; padding:2px 6px; "
+                f"border-radius:6px; background:{color}; color:#ffffff; "
+                f"font-size:{font_size}; font-weight:{font_weight};'>{text}</span>"
+            )
+
+        def order_team_span(team: str) -> str:
+            return pill_label(team)
+
+        def status_badge(text: str, color: str, font_size: str = "1rem", font_weight: str = "400") -> str:
+            return (
+                f"<span style='display:inline-block; padding:2px 6px; "
+                f"border-radius:6px; background:{color}; color:#ffffff; "
+                f"font-size:{font_size}; font-weight:{font_weight};'>{text}</span>"
+            )
+
+        def pill_label(team: str, font_size: str = "1rem", font_weight: str = "400") -> str:
+            color = team_color(team)
+            text = team_label_text(team)
+            return status_badge(text, color, font_size, font_weight)
+
+        def order_team_text(team: str) -> str:
+            color = team_color(team)
+            text = team_label_text(team)
+            return f"<span style='color:{color}; font-size:1rem;'>{text}</span>"
+
+        # Geographic assignment indicator
+        geo_total = 0
+        geo_matches = 0
+        for a in st.session_state.get("board_assignments", []):
+            floor = a.get("floor")
+            team = a.get("team")
+            is_geo = is_geo_assignment(team, floor)
+            if is_geo is None:
+                continue
+            geo_total += 1
+            if is_geo:
+                geo_matches += 1
+        if geo_total > 0:
+            pct = int(round(100 * geo_matches / geo_total))
+            st.caption(f"Geographic match: {pct}% ({geo_matches}/{geo_total})")
+
+        st.markdown(
+            """
+            <style>
+            .team-center {
+                text-align: center;
+                line-height: 38px;
+            }
+            .census-head {
+                text-align: center;
+            }
+            .census-val {
+                text-align: center;
+                line-height: 38px;
+            }
+            .stNumberInput input {
+                text-align: center;
+                height: 38px;
+            }
+            div[data-testid="stTextInput"] input {
+                height: 38px;
+            }
+            .order-line {
+                margin-bottom: 8px;
+                text-align: center;
+                font-size: 1rem;
+            }
+            .order-arrow {
+                display: block;
+                color: #666666;
+                margin-top: 10px;
+                margin-bottom: 10px;
+                font-size: 1.2rem;
+            }
+            button.btn-assign {
+                background-color: #2E7D32 !important;
+                border-color: #2E7D32 !important;
+                color: #ffffff !important;
+            }
+            button.btn-delete {
+                background-color: #9D2235 !important;
+                border-color: #9D2235 !important;
+                color: #ffffff !important;
+            }
+            button.btn-assign, button.btn-delete, button.btn-reset {
+                height: 38px !important;
+            }
+            button.btn-hold {
+                background-color: #F2C94C !important;
+                border-color: #F2C94C !important;
+                color: #222222 !important;
+            }
+            .divider {
+                height: 100%;
+                min-height: 600px;
+                border-left: 1px solid #e6e6e6;
+                margin: 0 auto;
+            }
+            .order-title {
+                text-align: center;
+            }
+            .order-status {
+                text-align: center;
+                color: #666666;
+                font-size: 0.9rem;
+                margin-top: -6px;
+                margin-bottom: 10px;
+            }
+            .assignment-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.95rem;
+            }
+            .assignment-table th, .assignment-table td {
+                padding: 4px 8px;
+                border-bottom: 1px solid #f1f1f1;
+            }
+            .assignment-table th {
+                border-bottom: 1px solid #e6e6e6;
+                text-align: left;
+            }
+            .assignment-table td.center, .assignment-table th.center {
+                text-align: center;
+            }
+            /* st.table styling */
+            div[data-testid="stTable"] table {
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                border: 1px solid #e6e6e6;
+                border-collapse: collapse;
+            }
+            div[data-testid="stTable"] th,
+            div[data-testid="stTable"] td {
+                border: 1px solid #e6e6e6 !important;
+                padding: 4px 8px !important;
+            }
+            div[data-testid="stTable"] thead th:first-child,
+            div[data-testid="stTable"] tbody th {
+                display: none;
+            }
+            div[data-testid="stTable"] th:nth-child(2),
+            div[data-testid="stTable"] td:nth-child(2) { width: 4%; }
+            div[data-testid="stTable"] th:nth-child(3),
+            div[data-testid="stTable"] td:nth-child(3) { width: 7%; }
+            div[data-testid="stTable"] th:nth-child(4),
+            div[data-testid="stTable"] td:nth-child(4) { width: 34%; }
+            div[data-testid="stTable"] th:nth-child(5),
+            div[data-testid="stTable"] td:nth-child(5) { width: 9%; text-align: center; }
+            div[data-testid="stTable"] th:nth-child(6),
+            div[data-testid="stTable"] td:nth-child(6) { width: 7%; text-align: center; }
+            div[data-testid="stTable"] th:nth-child(7),
+            div[data-testid="stTable"] td:nth-child(7) { width: 18%; text-align: center; }
+            div[data-testid="stTable"] th:nth-child(8),
+            div[data-testid="stTable"] td:nth-child(8) { width: 21%; }
+            div[data-testid="stHorizontalBlock"] {
+                gap: 0.6rem;
+            }
+            .add-admission-row div[data-testid="stButton"] {
+                margin-top: -6px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        census_col, divider1, add_col, divider2, order_col = st.columns([1.0, 0.01, 3.2, 0.01, 0.75])
 
         with census_col:
             st.markdown("### Census")
             header = st.columns([1.2, 1, 1, 1, 1])
             with header[0]:
-                st.markdown("**Team**")
+                st.markdown("<div class='census-head'><strong>Team</strong></div>", unsafe_allow_html=True)
             with header[1]:
-                st.markdown("**Start**")
+                st.markdown("<div class='census-head'><strong>Start</strong></div>", unsafe_allow_html=True)
             with header[2]:
-                st.markdown("**Redis**")
+                st.markdown("<div class='census-head'><strong>Redis</strong></div>", unsafe_allow_html=True)
             with header[3]:
-                st.markdown("**New**")
+                st.markdown("<div class='census-head'><strong>New</strong></div>", unsafe_allow_html=True)
             with header[4]:
-                st.markdown("**Now**")
+                st.markdown("<div class='census-head'><strong>Now</strong></div>", unsafe_allow_html=True)
+
+            teaching_start = sum(start_totals[t] for t in teams)
+            teaching_redis = sum(redis_totals[t] for t in teams)
+            teaching_new = sum(assigned_counts.get(t, 0) for t in teams)
+            teaching_now = sum(totals[t] for t in teams)
+
+            direct_start = sum(start_totals[t] for t in direct_care_teams)
+            direct_redis = sum(redis_totals[t] for t in direct_care_teams)
+            direct_new = sum(assigned_counts.get(t, 0) for t in direct_care_teams)
+            direct_now = sum(totals[t] for t in direct_care_teams)
+
+            medicine_start = teaching_start + direct_start
+            medicine_redis = teaching_redis + direct_redis
+            medicine_new = teaching_new + direct_new
+            medicine_now = teaching_now + direct_now
+
+            summary_rows = [
+                ("Medicine", medicine_start, medicine_redis, medicine_new, medicine_now),
+                ("Teaching", teaching_start, teaching_redis, teaching_new, teaching_now),
+                ("Direct", direct_start, direct_redis, direct_new, direct_now),
+            ]
+            for label, s, r, n, now in summary_rows:
+                row = st.columns([1.2, 1, 1, 1, 1])
+                with row[0]:
+                    st.markdown(f"<div class='team-center' style='text-align:right;'><strong>{label}</strong></div>", unsafe_allow_html=True)
+                with row[1]:
+                    st.markdown(f"<div class='census-val'><strong>{s}</strong></div>", unsafe_allow_html=True)
+                with row[2]:
+                    st.markdown(f"<div class='census-val'><strong>{r}</strong></div>", unsafe_allow_html=True)
+                with row[3]:
+                    st.markdown(f"<div class='census-val'><strong>{n}</strong></div>", unsafe_allow_html=True)
+                with row[4]:
+                    st.markdown(f"<div class='census-val'><strong>{now}</strong></div>", unsafe_allow_html=True)
 
             for team in teams:
                 row = st.columns([1.2, 1, 1, 1, 1])
                 with row[0]:
-                    label = format_team_label(team, bold=(team in capped))
-                    st.markdown(label, unsafe_allow_html=True)
+                    open_teaching = open_teaching_map.get(team, False)
+                    text = team_label_text(team)
+                    if open_teaching:
+                        label = status_badge(text, team_color(team), font_size="0.8rem", font_weight="400")
+                    else:
+                        label = format_team_label(team, bold=False)
+                    st.markdown(f"<div class='team-center'>{label}</div>", unsafe_allow_html=True)
                 with row[1]:
                     st.number_input(
                         "",
                         min_value=0,
                         max_value=40,
-                        value=0,
+                        value=start_defaults.get(team, 0),
                         key=f"board_start_{team}",
                         label_visibility="collapsed"
                     )
@@ -1497,103 +1927,532 @@ with tab_board:
                         label_visibility="collapsed"
                     )
                 with row[3]:
-                    st.markdown(f"**{assigned_counts.get(team, 0)}**")
+                    st.markdown(f"<div class='census-val'><strong>{assigned_counts.get(team, 0)}</strong></div>", unsafe_allow_html=True)
                 with row[4]:
                     total = totals.get(team, 0)
-                    if team in capped:
-                        st.markdown(f"<span style='color:#9D2235; font-weight:700'>{total}</span>", unsafe_allow_html=True)
+                    if team in capped_only:
+                        st.markdown(f"<div class='census-val'><span style='color:#9D2235; font-weight:700'>{total}</span></div>", unsafe_allow_html=True)
                     else:
-                        st.markdown(f"**{total}**")
+                        st.markdown(f"<div class='census-val'><strong>{total}</strong></div>", unsafe_allow_html=True)
 
-            row = st.columns([1.2, 1, 1, 1, 1])
-            with row[0]:
-                st.markdown(format_team_label("T"), unsafe_allow_html=True)
-            with row[1]:
-                st.number_input(
-                    "",
-                    min_value=0,
-                    max_value=60,
-                    value=0,
-                    key="board_start_T",
-                    label_visibility="collapsed"
-                )
-            with row[2]:
-                st.number_input(
-                    "",
-                    min_value=0,
-                    max_value=60,
-                    value=0,
-                    key="board_redis_T",
-                    label_visibility="collapsed"
-                )
-            with row[3]:
-                st.markdown(f"**{assigned_counts.get('T', 0)}**")
-            with row[4]:
-                total = totals.get("T", 0)
-                st.markdown(f"**{total}**")
-
-        with work_col:
-            if st.session_state.board_assignments:
-                st.markdown("### Assignments")
-                rows = []
-                for a in st.session_state.board_assignments:
-                    rows.append({
-                        "Time": a["time"],
-                        "Patient": a["patient"],
-                        "Origin": a["origin"],
-                        "Team": a["team"],
-                        "Reason": "Scheduled",
-                    })
-                st.table(rows)
+            for team in direct_care_teams:
+                max_val = 40
+                row = st.columns([1.2, 1, 1, 1, 1])
+                with row[0]:
+                    c1, c2 = st.columns([0.3, 0.7])
+                    with c1:
+                        default_open = int(team) <= 13
+                        open_val = st.checkbox("", value=default_open, key=f"board_open_{team}")
+                        direct_care_open[team] = open_val
+                    with c2:
+                        text = team_label_text(team)
+                        if open_val:
+                            label = status_badge(text, team_color(team), font_size="0.8rem", font_weight="400")
+                        else:
+                            label = format_team_label(team, bold=False)
+                        st.markdown(f"<div class='team-center'>{label}</div>", unsafe_allow_html=True)
+                with row[1]:
+                    st.number_input(
+                        "",
+                        min_value=0,
+                        max_value=max_val,
+                        value=start_defaults.get(team, 0),
+                        key=f"board_start_{team}",
+                        label_visibility="collapsed"
+                    )
+                with row[2]:
+                    st.number_input(
+                        "",
+                        min_value=0,
+                        max_value=max_val,
+                        value=0,
+                        key=f"board_redis_{team}",
+                        label_visibility="collapsed"
+                    )
+                with row[3]:
+                    st.markdown(f"<div class='census-val'><strong>{assigned_counts.get(team, 0)}</strong></div>", unsafe_allow_html=True)
+                with row[4]:
+                    total = totals.get(team, 0)
+                    st.markdown(f"<div class='census-val'><strong>{total}</strong></div>", unsafe_allow_html=True)
+        
+        with divider1:
+            st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
         with add_col:
             st.markdown("### Add Admission")
-            add_col1, add_col2, add_col3, add_col4 = st.columns([2, 2, 1, 1])
-            with add_col1:
-                patient_label = st.text_input("Patient / room", key="board_patient_label")
-            with add_col2:
-                origin_label = st.text_input("Origin (optional)", key="board_origin_label")
-            with add_col3:
-                assign_clicked = st.button("Assign Next", type="primary", use_container_width=True)
-            with add_col4:
+            meta_row = st.columns([2, 1.2, 1.2, 1, 1])
+            with meta_row[0]:
+                schedule_note = f" (using {schedule_day} rules)" if schedule_day != day_name else ""
+                st.caption(
+                    f"Schedule: {day_name}{schedule_note} | Sim time {sim_time.strftime('%H:%M')} "
+                    f"(+20 min per Assign)"
+                )
+            with meta_row[1]:
+                st.markdown("&nbsp;", unsafe_allow_html=True)
+            with meta_row[2]:
+                st.markdown("&nbsp;", unsafe_allow_html=True)
+            with meta_row[3]:
+                delete_clicked = st.button("Delete Last", use_container_width=True)
+            with meta_row[4]:
                 reset_clicked = st.button("Reset Board", use_container_width=True)
+
+            label_row = st.columns([2, 1.2, 1.2, 1, 1])
+            with label_row[0]:
+                st.markdown("Patient")
+            with label_row[1]:
+                st.markdown("Destination")
+            with label_row[2]:
+                st.markdown("Team")
+            for col in label_row[3:]:
+                col.markdown("&nbsp;", unsafe_allow_html=True)
+
+            st.markdown("<div class='add-admission-row'>", unsafe_allow_html=True)
+            if "board_row_ids" not in st.session_state:
+                st.session_state.board_row_ids = [0]
+                st.session_state.board_row_counter = 1
+
+            assign_payload = None
+            hold_clicked = False
+
+            for idx, row_id in enumerate(st.session_state.board_row_ids):
+                input_row = st.columns([2, 1.2, 1.2, 1, 1], vertical_alignment="bottom")
+                with input_row[0]:
+                    patient_label = st.text_input("Patient", key=f"board_patient_{row_id}", label_visibility="collapsed")
+                with input_row[1]:
+                    origin_label = st.text_input("Destination", key=f"board_origin_{row_id}", label_visibility="collapsed")
+                with input_row[2]:
+                    force_options = ["Algorithm", "IMCU"] + [f"Med {t}" for t in list("ABCDEFGHIJ")] + [f"Med {i}" for i in range(1, 16)]
+                    forced_team = st.selectbox("Team", force_options, key=f"board_forced_{row_id}", label_visibility="collapsed")
+                with input_row[3]:
+                    assign_clicked = st.button("Assign", use_container_width=True, key=f"board_assign_{row_id}")
+                with input_row[4]:
+                    if idx == len(st.session_state.board_row_ids) - 1:
+                        hold_clicked = st.button("Hold", use_container_width=True, key=f"board_hold_{row_id}")
+                    else:
+                        st.markdown("&nbsp;", unsafe_allow_html=True)
+
+                if assign_clicked and assign_payload is None:
+                    assign_payload = {
+                        "row_id": row_id,
+                        "patient": patient_label,
+                        "origin": origin_label,
+                        "forced": forced_team,
+                    }
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # Apply button classes after render
+            components.html(
+                """
+                <script>
+                const doc = window.parent.document;
+                const applyButtonClasses = () => {
+                  const buttons = Array.from(window.parent.document.querySelectorAll('button'));
+                  for (const btn of buttons) {
+                    btn.classList.remove('btn-assign', 'btn-delete', 'btn-reset', 'btn-hold');
+                    const label = (btn.innerText || '').trim();
+                    if (label === 'Assign') btn.classList.add('btn-assign');
+                    if (label === 'Hold') btn.classList.add('btn-hold');
+                    if (label === 'Delete Last') btn.classList.add('btn-delete');
+                    if (label === 'Reset Board') btn.classList.add('btn-reset');
+                  }
+                };
+                applyButtonClasses();
+                const colorFor = (text) => {
+                  if (text.startsWith('Algorithm')) return '#111111';
+                  if (/^Med [A-J]\\b/.test(text)) return '#9D2235';
+                  if (/^Med (1[0-5]|[1-9])\\b/.test(text)) return '#1E5AA8';
+                  return '#111111';
+                };
+                const colorTeamSelect = () => {
+                  const combos = Array.from(doc.querySelectorAll('div[data-baseweb="select"] [role="combobox"]'));
+                  combos.forEach(cb => {
+                    const valueText = (cb.textContent || '').trim();
+                    cb.style.setProperty('color', colorFor(valueText), 'important');
+                  });
+                  const options = Array.from(doc.querySelectorAll('li[role="option"]'));
+                  options.forEach(opt => {
+                    const text = (opt.textContent || '').trim();
+                    opt.style.setProperty('color', colorFor(text), 'important');
+                  });
+                };
+                let colorTries = 0;
+                const colorTimer = setInterval(() => {
+                  applyButtonClasses();
+                  colorTeamSelect();
+                  colorTries += 1;
+                  if (colorTries > 30) clearInterval(colorTimer);
+                }, 200);
+                doc.addEventListener('click', () => setTimeout(colorTeamSelect, 50));
+                doc.addEventListener('mouseover', () => setTimeout(colorTeamSelect, 50));
+                const resizeDividers = () => {
+                  const height = Math.max(
+                    doc.body.scrollHeight,
+                    doc.documentElement.scrollHeight
+                  );
+                  const dividers = doc.querySelectorAll('.divider');
+                  dividers.forEach(d => { d.style.height = height + 'px'; });
+                };
+                setTimeout(resizeDividers, 50);
+                window.parent.addEventListener('resize', resizeDividers);
+                </script>
+                """,
+                height=0
+            )
+
+            contact_map = load_anc_contacts_for_date(hospital_day.strftime('%Y-%m-%d'))
 
             if reset_clicked:
                 st.session_state.board_assignments = []
                 st.session_state.board_order_index = 0
+                st.session_state.board_sim_time = hospital_day.replace(hour=7, minute=5, second=0, microsecond=0)
+                st.session_state.board_row_ids = [0]
+                st.session_state.board_row_counter = 1
                 st.rerun()
 
-            if assign_clicked:
-                team, next_index, _ = next_team_for_assignment(
-                    order=order,
-                    index=st.session_state.board_order_index,
-                    capped=capped,
-                    capped_behavior=capped_behavior
-                )
-                st.session_state.board_order_index = next_index
-                st.session_state.board_assignments.append({
-                    "patient": patient_label.strip() or "(blank)",
-                    "origin": origin_label.strip(),
-                    "team": team,
-                    "reason": "Scheduled",
-                    "time": datetime.now().strftime("%H:%M")
-                })
-                st.session_state.board_clear_inputs = True
+            if delete_clicked:
+                if st.session_state.board_assignments:
+                    st.session_state.board_assignments.pop()
+                    st.session_state.board_sim_time = st.session_state.board_sim_time - timedelta(minutes=20)
+                    if st.session_state.board_assignments:
+                        last = st.session_state.board_assignments[-1]
+                        st.session_state.board_order_index = last.get("next_index", 0)
+                        st.session_state.board_teach_segment_start = last.get("teach_segment_start")
+                        st.session_state.board_teach_segment_used = last.get("teach_segment_used", [])
+                    else:
+                        st.session_state.board_order_index = 0
+                        st.session_state.board_teach_segment_start = None
+                        st.session_state.board_teach_segment_used = []
+                    st.rerun()
+
+            if hold_clicked:
+                st.session_state.board_row_ids.append(st.session_state.board_row_counter)
+                st.session_state.board_row_counter += 1
                 st.rerun()
+
+            if assign_payload:
+                patient_label = assign_payload["patient"]
+                origin_label = assign_payload["origin"]
+                forced_team = assign_payload["forced"]
+                current_index = st.session_state.board_order_index
+                assigned_team = None
+                next_index = current_index
+                forced_choice = forced_team
+
+                # IMCU override: any location marked with "*" goes to Med 1-3
+                location = (origin_label or patient_label or "").strip()
+                imcu_override = "*" in location or forced_choice == "IMCU"
+                if imcu_override:
+                    patient_obj = Patient(
+                        identifier=patient_label.strip() or "",
+                        floor="IMCU",
+                        raw_location=location
+                    )
+                    current_census = {int(t): score_totals.get(t, 0) for t in direct_care_teams}
+                    closed = {int(t) for t in direct_care_teams if not direct_care_open.get(t, int(t) <= 13)}
+                    placements = optimize_placements([patient_obj], current_census, closed)
+                    if placements:
+                        assigned_team = str(placements[0].team)
+                    else:
+                        assigned_team = "1"
+                    assignment_floor = "IMCU"
+                    next_index = current_index  # do not consume teaching order
+                elif forced_choice != "Algorithm":
+                    forced_value = forced_choice.replace("Med ", "").strip()
+                    assigned_team = forced_value
+                    assignment_floor = normalize_floor((origin_label or patient_label or "").strip())
+                    next_index = current_index
+                elif current_index < len(order) and order[current_index] in teaching_set and not teaching_allowed and direct_open_now:
+                    assigned_team = "T"
+                    next_index = current_index  # keep teaching order during protected/closed time
+                    assignment_floor = normalize_floor((origin_label or patient_label or "").strip())
+                elif current_index < len(order) and order[current_index] in teaching_set:
+                    segment, seg_start, seg_end = get_teaching_segment(order, current_index, teaching_set)
+                    if st.session_state.board_teach_segment_start != seg_start:
+                        st.session_state.board_teach_segment_start = seg_start
+                        st.session_state.board_teach_segment_used = []
+
+                    used = set(st.session_state.board_teach_segment_used)
+                    candidates = [t for t in segment if t not in used and open_teaching_map.get(t, True)]
+
+                    location = (origin_label or patient_label or "").strip()
+                    floor = normalize_floor(location) if location else None
+
+                    chosen = None
+                    if floor and candidates:
+                        match_candidates = [t for t in candidates if teaching_floor_match(t, floor, teaching_floors)]
+                        if match_candidates:
+                            chosen = min(match_candidates, key=lambda t: score_totals.get(t, 0))
+                    if not chosen and candidates:
+                        chosen = min(candidates, key=lambda t: score_totals.get(t, 0))
+
+                    if chosen:
+                        assigned_team = chosen
+                        used_list = st.session_state.board_teach_segment_used
+                        if chosen not in used_list:
+                            used_list.append(chosen)
+                        remaining = [t for t in segment if t not in used_list]
+                        if remaining:
+                            next_index = seg_start  # keep segment active until all used
+                        else:
+                            next_index = seg_end
+                            st.session_state.board_teach_segment_used = []
+                        st.session_state.board_teach_segment_used = used_list
+                        assignment_floor = floor
+                    else:
+                        # No teaching teams open -> route to Direct
+                        assigned_team = "T"
+                        next_index = seg_end
+                        st.session_state.board_teach_segment_used = []
+                        assignment_floor = floor
+                else:
+                    team, next_index, _ = next_team_for_assignment(
+                        order=order,
+                        index=current_index,
+                        capped=capped,
+                        capped_behavior=capped_behavior
+                    )
+                    assigned_team = team
+                    assignment_floor = normalize_floor((origin_label or patient_label or "").strip())
+
+                st.session_state.board_order_index = next_index
+
+                if assigned_team == "T":
+                    # Auto-assign Direct to Med 1-15 using overnight redis logic
+                    location = (origin_label or patient_label or "").strip()
+                    floor = normalize_floor(location) if location else None
+                    patient_obj = Patient(
+                        identifier=patient_label.strip() or "",
+                        floor=floor,
+                        raw_location=location
+                    )
+                    current_census = {int(t): score_totals.get(t, 0) for t in direct_care_teams}
+                    closed = {int(t) for t in direct_care_teams if not direct_care_open.get(t, int(t) <= 13)}
+                    if night_direct_only:
+                        assigned_team = "T"
+                        assignment_floor = floor
+                    else:
+                        placements = optimize_placements([patient_obj], current_census, closed)
+                        if placements:
+                            assigned_team = str(placements[0].team)
+                        else:
+                            assigned_team = "1"
+                        assignment_floor = floor
+                text_to, phone = contact_map.get(assigned_team, ("", ""))
+                if not text_to and assigned_team.isdigit():
+                    text_to, phone = contact_map.get("T", ("", ""))
+                geo_val = is_geo_assignment(assigned_team, assignment_floor)
+                reason = ""
+                if imcu_override:
+                    reason = "IMCU Admission"
+                elif forced_choice != "Algorithm":
+                    reason = "Manually Assigned"
+                elif geo_val is True:
+                    reason = "Geo Match"
+                elif geo_val is False:
+                    reason = "Off Geo"
+                st.session_state.board_assignments.append({
+                    "patient": patient_label.strip() or "",
+                    "origin": origin_label.strip(),
+                    "team": assigned_team,
+                    "reason": reason,
+                    "text_to": text_to,
+                    "phone": phone,
+                    "floor": assignment_floor,
+                    "time": st.session_state.board_sim_time.strftime("%H:%M")
+                })
+                st.session_state.board_assignments[-1]["next_index"] = next_index
+                st.session_state.board_assignments[-1]["teach_segment_start"] = st.session_state.board_teach_segment_start
+                st.session_state.board_assignments[-1]["teach_segment_used"] = list(st.session_state.board_teach_segment_used)
+                st.session_state.board_sim_time = st.session_state.board_sim_time + timedelta(minutes=20)
+                if assign_payload["row_id"] in st.session_state.board_row_ids:
+                    st.session_state.board_row_ids.remove(assign_payload["row_id"])
+                if not st.session_state.board_row_ids:
+                    st.session_state.board_row_ids = [st.session_state.board_row_counter]
+                    st.session_state.board_row_counter += 1
+                st.rerun()
+
+            if st.session_state.board_assignments:
+                st.markdown("### Assignments")
+                rows = []
+                for i, a in enumerate(st.session_state.board_assignments, 1):
+                    contact = a.get("text_to", "")
+                    team_display = f"Med {a['team']}" if str(a.get("team", "")).isdigit() else a.get("team", "")
+                    rows.append({
+                        "#": i,
+                        "Time": a["time"],
+                        "Patient": a["patient"],
+                        "Destination": a["origin"],
+                        "Team": team_display,
+                        "Contact": contact,
+                        "Geography": a.get("reason", ""),
+                    })
+                df = pd.DataFrame(rows)
+                st.table(df)
+
+        with divider2:
+            st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
         with order_col:
-            st.markdown("### Admission Order")
+            st.markdown("<div class='order-title'><h3>Admission Order</h3></div>", unsafe_allow_html=True)
+            selected_day = st.selectbox("Test day", day_options, key="board_test_day")
+            if selected_day != st.session_state.get("board_day"):
+                st.session_state.board_assignments = []
+                st.session_state.board_order_index = 0
+                st.session_state.board_day = selected_day
+                st.session_state.board_shift_prev = shift
+                st.session_state.board_sim_time = hospital_day.replace(hour=7, minute=5, second=0, microsecond=0)
+                st.session_state.board_row_ids = [0]
+                st.session_state.board_row_counter = 1
+                st.rerun()
+            status_bits = []
+            if hold_now:
+                status_bits.append("Hold 6–7 PM (night team)")
+            if protected_now:
+                status_bits.append("Protected time (Direct admits)")
+            if teaching_allowed:
+                status_bits.append("Teaching open")
+            elif not hold_now:
+                status_bits.append("Teaching closed")
+            if direct_open_now:
+                status_bits.append("Direct open")
+            if status_bits:
+                st.markdown(f"<div class='order-status'>{' • '.join(status_bits)}</div>", unsafe_allow_html=True)
+            with st.expander("Schedule details (review)"):
+                st.markdown(
+                    f"- Teaching open: {', '.join(teaching_open_windows) if teaching_open_windows else 'n/a'}\n"
+                    f"- Teaching closed: {', '.join(teaching_closed_windows) if teaching_closed_windows else 'n/a'}\n"
+                    f"- Protected time: {', '.join(protected_windows) if protected_windows else 'n/a'}\n"
+                    f"- Direct open: {', '.join(direct_open_windows) if direct_open_windows else 'n/a'}\n"
+                    f"- Night hold: {', '.join(night_hold_windows) if night_hold_windows else 'n/a'}\n"
+                    f"- Teaching max admits per team: {teaching_rounds_max}\n"
+                    f"- Now: {schedule_time.strftime('%H:%M')} (teaching_allowed={teaching_allowed}, direct_open={direct_open_now}, night_direct_only={night_direct_only})"
+                )
             if order:
+                st.session_state.order_render_id = st.session_state.get("order_render_id", 0) + 1
+                order_render_id = st.session_state.order_render_id
                 current_idx = st.session_state.board_order_index
-                lines = []
-                for i, team in enumerate(order):
-                    bold = (i == current_idx)
-                    label = format_team_label(team, bold=bold)
-                    arrow = " &darr;" if i < len(order) - 1 else ""
-                    lines.append(f"{label}{arrow}")
+                line_entries = []
+                target_set = False
+                i = 0
+                while i < len(order):
+                    team = order[i]
+                    if team in teaching_set:
+                        segment, seg_start, seg_end = get_teaching_segment(order, i, teaching_set)
+                        used_list = []
+                        if st.session_state.board_teach_segment_start == seg_start:
+                            used_list = [t for t in st.session_state.board_teach_segment_used if t in segment]
+
+                        remaining = [t for t in segment if t not in used_list and open_teaching_map.get(t, True)]
+
+                        if seg_end <= current_idx:
+                            for t in segment:
+                                line_entries.append({"html": order_team_text(t), "is_target": False})
+                        elif seg_start <= current_idx < seg_end:
+                            for ut in used_list:
+                                line_entries.append({"html": order_team_text(ut), "is_target": False})
+
+                            if remaining:
+                                for slot_idx in range(len(remaining)):
+                                    is_target = False
+                                    if not target_set and slot_idx == 0:
+                                        is_target = True
+                                        target_set = True
+                                    if is_target:
+                                        remaining_html = " ".join([pill_label(t, font_size="1rem", font_weight="700") for t in remaining])
+                                    else:
+                                        remaining_html = " ".join([pill_label(t) for t in remaining])
+                                    line_entries.append({"html": remaining_html, "is_target": is_target})
+                        else:
+                            if remaining:
+                                remaining_html = " ".join([pill_label(t) for t in remaining])
+                                for _ in range(len(remaining)):
+                                    line_entries.append({"html": remaining_html, "is_target": False})
+                        i = seg_end
+                        continue
+                    if i < current_idx:
+                        line_entries.append({"html": order_team_text(team), "is_target": False})
+                    else:
+                        is_target = False
+                        if not target_set and i == current_idx:
+                            is_target = True
+                            target_set = True
+                        if is_target:
+                            html = pill_label(team, font_size="1rem", font_weight="700")
+                        else:
+                            html = order_team_span(team)
+                        line_entries.append({"html": html, "is_target": is_target})
+                    i += 1
                 if shift == "Evening":
-                    lines.append("<span style='color:#1E5AA8'>T[BAT]...</span>")
-                st.markdown("<br>".join(lines), unsafe_allow_html=True)
+                    line_entries.append({"html": order_team_span("T"), "is_target": False})
+
+                lines = []
+                scroll_target = 0
+                for idx, entry in enumerate(line_entries):
+                    if entry.get("is_target"):
+                        scroll_target = idx
+                    arrow = "<span class='order-arrow'>&darr;</span>" if idx < len(line_entries) - 1 else ""
+                    lines.append(f"<div class='order-line' data-order-index='{idx}'>{entry['html']}{arrow}</div>")
+
+                spacer = "<div class='order-line order-spacer' data-order-index='-1'>&nbsp;</div>"
+                st.markdown(
+                    f"<div id='admission-order-{order_render_id}' style='max-height:70vh; overflow-y:auto;'>"
+                    + spacer
+                    + "<br>"
+                    + "<br>".join(lines)
+                    + "</div>",
+                    unsafe_allow_html=True
+                )
+
+                components.html(
+                    f"""
+                    <script>
+                    const doc = window.parent.document;
+                    const containerId = 'admission-order-{order_render_id}';
+                    let animating = false;
+                    const animateScroll = (el, to, duration = 700) => {{
+                      if (animating) return;
+                      animating = true;
+                      const start = el.scrollTop;
+                      const change = to - start;
+                      const startTime = performance.now();
+                      const easeInOut = (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
+                      const step = (now) => {{
+                        const elapsed = now - startTime;
+                        const progress = Math.min(elapsed / duration, 1);
+                        el.scrollTop = start + change * easeInOut(progress);
+                        if (progress < 1) {{
+                          requestAnimationFrame(step);
+                        }} else {{
+                          animating = false;
+                        }}
+                      }};
+                      requestAnimationFrame(step);
+                    }};
+                    const scrollToTarget = () => {{
+                      const container = doc.getElementById(containerId);
+                      if (!container) return false;
+                      const index = {scroll_target};
+                      const targetIndex = index <= 0 ? -1 : index - 1;
+                      const current = container.querySelector(`[data-order-index="${{targetIndex}}"]`);
+                      if (!current) return false;
+                      const rect = current.getBoundingClientRect();
+                      const containerRect = container.getBoundingClientRect();
+                      const offset = rect.top - containerRect.top;
+                      const target = container.scrollTop + offset;
+                      animateScroll(container, Math.max(0, target), 800);
+                      return true;
+                    }};
+                    const start = Date.now();
+                    const timer = setInterval(() => {{
+                      const ok = scrollToTarget();
+                      if (ok || Date.now() - start > 2200) {{
+                        clearInterval(timer);
+                      }}
+                    }}, 80);
+                    </script>
+                    """,
+                    height=0
+                )
             else:
                 st.warning("No order configured for this shift.")
 
